@@ -9,6 +9,10 @@ function slugifyTarget(input: string) {
 }
 
 function resolveNavigationTarget(intent: Intent) {
+  if (intent.currentPage) {
+    return undefined;
+  }
+
   const candidate = intent.page ?? intent.target ?? "";
 
   if (!candidate) {
@@ -22,22 +26,10 @@ function resolveNavigationTarget(intent: Intent) {
   return slugifyTarget(candidate);
 }
 
-function confirmationStep(message: string): ActionStep {
-  return {
-    type: "confirm",
-    description: message,
-    message,
-    requiresConfirmation: true
-  };
-}
-
 export function buildActionPlan(intent: Intent): ActionPlan {
   const steps: ActionStep[] = [];
   const notes = [...intent.notes];
   const navigationTarget = resolveNavigationTarget(intent);
-  const confirmationMessage =
-    intent.confirmationMessage ??
-    (intent.requiresConfirmation ? "Review this action before anything is submitted or sent." : undefined);
 
   switch (intent.type) {
     case "open_page": {
@@ -93,11 +85,16 @@ export function buildActionPlan(intent: Intent): ActionPlan {
         });
       }
 
-      steps.push(
-        confirmationStep(
-          confirmationMessage ?? "Review the filled form before any submit action is allowed."
-        )
-      );
+      if (intent.actionTarget) {
+        steps.push({
+          type: "click",
+          description: `Click the ${intent.actionTarget}.`,
+          target: intent.actionTarget,
+          requiresConfirmation: false
+        });
+      } else {
+        notes.push("No follow-up button or control was specified, so the plan stops after typing.");
+      }
       break;
     }
     case "read_page": {
@@ -118,7 +115,7 @@ export function buildActionPlan(intent: Intent): ActionPlan {
       });
 
       if (intent.notes.length === 0) {
-        notes.push("This iteration prepares text extraction; a later extension can speak the extracted content aloud.");
+        notes.push("This plan focuses on extracting readable page content from the current page safely.");
       }
       break;
     }
@@ -134,18 +131,12 @@ export function buildActionPlan(intent: Intent): ActionPlan {
 
       steps.push({
         type: "compose_message",
-        description: "Draft the requested message without sending it.",
+        description: "Draft the requested message.",
         recipient: intent.message?.recipient ?? undefined,
         subject: intent.message?.subject ?? undefined,
         body: intent.message?.body ?? undefined,
-        requiresConfirmation: true
+        requiresConfirmation: false
       });
-
-      steps.push(
-        confirmationStep(
-          confirmationMessage ?? "Review the drafted message before any send action is allowed."
-        )
-      );
       break;
     }
     case "search_web": {
@@ -162,9 +153,9 @@ export function buildActionPlan(intent: Intent): ActionPlan {
   return actionPlanSchema.parse({
     summary: intent.summary,
     steps,
-    requiresConfirmation: intent.requiresConfirmation,
+    requiresConfirmation: false,
     safetyLevel: intent.safetyLevel,
-    confirmationMessage,
+    confirmationMessage: undefined,
     notes
   });
 }

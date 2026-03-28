@@ -1,6 +1,11 @@
 import {
+  extensionBridgeStateSchema,
+  extensionExecuteResponseSchema,
   orchestratorResponseSchema,
   transcriptionResponseSchema,
+  type ActionPlan,
+  type ExtensionCommand,
+  type ExtensionTarget,
   type OrchestratorResponse
 } from "@shared/index";
 
@@ -30,14 +35,121 @@ export async function transcribeAudio(file: File) {
   return parseJsonResponse(response, transcriptionResponseSchema);
 }
 
-export async function orchestrateTranscript(transcript: string): Promise<OrchestratorResponse> {
+type OrchestrateOptions = {
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+};
+
+function mapStepTarget(target: string | undefined): ExtensionTarget {
+  return {
+    text: target ?? null,
+    fieldHint: target ?? null,
+    role: target?.toLowerCase().includes("button") || target?.toLowerCase().includes("send") ? "button" : null,
+    selector: null,
+    name: null,
+    id: null,
+    ariaLabel: null,
+    placeholder: null
+  };
+}
+
+export async function orchestrateTranscript(
+  transcript: string,
+  options?: OrchestrateOptions
+): Promise<OrchestratorResponse> {
   const response = await fetch(`${apiBaseUrl}/api/orchestrate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ transcript })
+    body: JSON.stringify({
+      transcript,
+      history: options?.history ?? []
+    })
   });
 
   return parseJsonResponse(response, orchestratorResponseSchema);
+}
+
+export async function getExtensionState() {
+  const response = await fetch(`${apiBaseUrl}/api/extension/state`);
+  return parseJsonResponse(response, extensionBridgeStateSchema);
+}
+
+export async function queueExtensionCommand(command: ExtensionCommand) {
+  const response = await fetch(`${apiBaseUrl}/api/extension/execute`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ command })
+  });
+
+  return parseJsonResponse(response, extensionExecuteResponseSchema);
+}
+
+export function mapPlanToExtensionCommands(plan: ActionPlan) {
+  const commands: ExtensionCommand[] = [];
+
+  for (const [index, step] of plan.steps.entries()) {
+    const id = `plan_${Date.now()}_${index}`;
+
+    switch (step.type) {
+      case "navigate":
+        if (step.target) {
+          commands.push({
+            id,
+            type: "navigate",
+            url: step.target.startsWith("http") ? step.target : `http://localhost:5173${step.target}`,
+            newTab: false
+          });
+        }
+        break;
+      case "type":
+        if (step.fieldHint && typeof step.value === "string") {
+          commands.push({
+            id,
+            type: "fill_field",
+            target: {
+              fieldHint: step.fieldHint,
+              text: null,
+              role: null,
+              selector: null,
+              name: null,
+              id: null,
+              ariaLabel: null,
+              placeholder: null
+            },
+            value: step.value
+          });
+        }
+        break;
+      case "click":
+        commands.push({
+          id,
+          type: "click",
+          target: mapStepTarget(step.target)
+        });
+        break;
+      case "extract_text":
+        commands.push({
+          id,
+          type: "extract_text_blocks"
+        });
+        break;
+      case "search":
+        if (step.query) {
+          commands.push({
+            id,
+            type: "navigate",
+            url: `https://www.google.com/search?q=${encodeURIComponent(step.query)}`,
+            newTab: false
+          });
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  return commands;
 }

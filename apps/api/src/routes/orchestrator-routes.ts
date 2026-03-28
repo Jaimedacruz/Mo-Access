@@ -12,7 +12,9 @@ import {
 } from "../../../../shared/index";
 import { env } from "../config";
 import { buildActionPlan } from "../services/action-planner-service";
+import { getLastExtensionPageContext } from "../services/extension-bridge-service";
 import { parseIntent } from "../services/intent-parser-service";
+import { summarizePageContext } from "../services/page-summary-service";
 import { transcribeAudio } from "../services/transcription-service";
 
 const upload = multer({
@@ -58,8 +60,18 @@ orchestratorRouter.post(
 
 orchestratorRouter.post("/parse-intent", async (request, response, next) => {
   try {
-    const { transcript } = parseIntentRequestSchema.parse(request.body);
-    const intent = await parseIntent(transcript);
+    const { transcript, history, pendingConfirmation } = parseIntentRequestSchema.parse(request.body);
+    const pageContext = getLastExtensionPageContext();
+    const intent = await parseIntent(transcript, {
+      history,
+      pendingConfirmation,
+      pageContextSummary: pageContext
+        ? `Title: ${pageContext.title}\nURL: ${pageContext.url}\nVisible text sample:\n${pageContext.textBlocks
+            .slice(0, 12)
+            .map((block) => `- ${block.text}`)
+            .join("\n")}`
+        : null
+    });
 
     response.json(
       parseIntentResponseSchema.parse({
@@ -89,9 +101,30 @@ orchestratorRouter.post("/plan", async (request, response, next) => {
 
 orchestratorRouter.post("/orchestrate", async (request, response, next) => {
   try {
-    const { transcript } = orchestrateRequestSchema.parse(request.body);
-    const intent = await parseIntent(transcript);
+    const { transcript, history, pendingConfirmation } = orchestrateRequestSchema.parse(request.body);
+    const pageContext = getLastExtensionPageContext();
+    const intent = await parseIntent(transcript, {
+      history,
+      pendingConfirmation,
+      pageContextSummary: pageContext
+        ? `Title: ${pageContext.title}\nURL: ${pageContext.url}\nVisible text sample:\n${pageContext.textBlocks
+            .slice(0, 12)
+            .map((block) => `- ${block.text}`)
+            .join("\n")}`
+        : null
+    });
     const plan = buildActionPlan(intent);
+    const wantsSummary =
+      intent.type === "read_page" &&
+      pageContext &&
+      (intent.currentPage || transcript.toLowerCase().includes("this page") || transcript.toLowerCase().includes("this website")) &&
+      /(overview|summary|summari[sz]e|brief|what is on this page|what's on this page|what is written on this page|what's written on this page)/i.test(
+        transcript
+      );
+
+    const assistantMessage = wantsSummary
+      ? await summarizePageContext(transcript, pageContext)
+      : null;
 
     response.json(
       orchestratorResponseSchema.parse({
@@ -102,7 +135,8 @@ orchestratorRouter.post("/orchestrate", async (request, response, next) => {
           "Transcript received.",
           `Intent classified as ${intent.type}.`,
           `Generated ${plan.steps.length} extension-ready command${plan.steps.length === 1 ? "" : "s"}.`
-        ]
+        ],
+        assistantMessage
       })
     );
   } catch (error) {

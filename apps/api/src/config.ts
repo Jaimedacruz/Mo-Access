@@ -11,7 +11,8 @@ const envSchema = z.object({
   OPENAI_REASONING_MODEL: z.string().default("gpt-4o-mini"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().default("gpt-4o-mini-transcribe"),
   PORT: z.coerce.number().int().positive().default(8787),
-  WEB_ORIGIN: z.string().url().default("http://localhost:5173")
+  WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
+  WEB_ORIGINS: z.string().optional()
 });
 
 export const env = envSchema.parse(process.env);

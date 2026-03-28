@@ -13,12 +13,18 @@ You must:
 - produce a concise summary in plain language
 - extract any page, target, query, message content, or form fields that are clearly present
 - infer safety conservatively
-- mark requiresConfirmation as true for any action that could submit data, send a message, or cause side effects
+- for this MVP, set requiresConfirmation to false unless the request is too unclear to execute directly
 - keep fields empty if the user did not provide actual form values
 - prefer safe partial interpretations over invented details
 - for any field that is unknown or not provided, return null instead of omitting it
+- use currentPage = true when the user refers to "this page", "this site", "this website", "current tab", or a currently open interface
 - return form fields as an array named fields with objects shaped like { "name": "...", "value": "..." }
 - return messageRecipient, messageSubject, and messageBody as top-level fields
+- return actionTarget when the user explicitly mentions a button or control to activate after typing, such as "send", "submit", or "search"
+
+Use the provided conversation context.
+- If the user refers to the current page and page context is supplied, do not complain that a URL is missing.
+- Distinguish browser UI tasks from message composition. Typing into a page field and clicking a page button is usually fill_form, not compose_message.
 
 When a request is ambiguous:
 - still choose the safest supported intent type

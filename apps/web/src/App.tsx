@@ -7,7 +7,13 @@ import {
   type Intent,
   type SafetyLevel
 } from "@shared/index";
-import { orchestrateTranscript, transcribeAudio } from "./api";
+import {
+  getExtensionState,
+  mapPlanToExtensionCommands,
+  orchestrateTranscript,
+  queueExtensionCommand,
+  transcribeAudio
+} from "./api";
 
 type ChatMessage = {
   id: string;
@@ -15,8 +21,6 @@ type ChatMessage = {
   content: string;
   tone?: "default" | "error";
   steps?: ActionPlan["steps"];
-  confirmationMessage?: string | null;
-  requiresConfirmation?: boolean;
   safetyLevel?: SafetyLevel;
   notes?: string[];
 };
@@ -31,22 +35,28 @@ const initialMessages: ChatMessage[] = [
 ];
 
 function createId() {
-  return crypto.randomUUID();
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  return `fallback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function buildAssistantReply(intent: Intent, plan: ActionPlan): ChatMessage {
+function buildAssistantReply(intent: Intent, plan: ActionPlan, assistantMessage: string | null): ChatMessage {
   const summary = intent.summary.endsWith(".") ? intent.summary : `${intent.summary}.`;
-  const content = plan.requiresConfirmation
-    ? `${summary} I prepared a safe plan and stopped before anything with side effects.`
-    : `${summary} I prepared a safe plan for you.`;
+  const content = assistantMessage ?? `${summary} I prepared a plan for you.`;
 
   return {
     id: createId(),
     role: "assistant",
     content,
     steps: plan.steps,
-    confirmationMessage: plan.confirmationMessage,
-    requiresConfirmation: plan.requiresConfirmation,
     safetyLevel: plan.safetyLevel,
     notes: plan.notes
   };
@@ -101,6 +111,66 @@ export default function App() {
     });
   }
 
+  function conversationHistory() {
+    return messages.map((message) => ({
+      role: message.role,
+      content: message.content
+    }));
+  }
+
+  async function queuePlanExecution(plan: ActionPlan) {
+    const commands = mapPlanToExtensionCommands(plan).filter((command) => {
+      const step = plan.steps.find((candidate) => {
+        if (candidate.type === "navigate" && command.type === "navigate") {
+          return true;
+        }
+        if (candidate.type === "type" && command.type === "fill_field") {
+          return true;
+        }
+        if (candidate.type === "click" && command.type === "click") {
+          return true;
+        }
+        if (candidate.type === "extract_text" && command.type === "extract_text_blocks") {
+          return true;
+        }
+        if (candidate.type === "search" && command.type === "navigate") {
+          return true;
+        }
+
+        return false;
+      });
+
+      return step ? !step.requiresConfirmation : true;
+    });
+
+    if (commands.length === 0) {
+      throw new Error("There are no executable browser steps yet. Add more detail if you want something specific to happen on the page.");
+    }
+
+    const bridgeState = await getExtensionState();
+    for (const command of commands) {
+      await queueExtensionCommand(command);
+    }
+
+    return {
+      queuedCount: commands.length,
+      extensionConnected: bridgeState.extensionConnected
+    };
+  }
+
+  async function autoQueuePlanExecution(plan: ActionPlan) {
+    const execution = await queuePlanExecution(plan);
+    addMessage({
+      id: createId(),
+      role: "assistant",
+      content: execution.extensionConnected
+        ? `I queued ${execution.queuedCount} browser action${execution.queuedCount === 1 ? "" : "s"} for the extension.`
+        : `I queued ${execution.queuedCount} browser action${execution.queuedCount === 1 ? "" : "s"}. Open the extension to let it pick them up.`,
+      steps: plan.steps,
+      safetyLevel: plan.safetyLevel
+    });
+  }
+
   async function sendTypedCommand(command: string) {
     const trimmed = command.trim();
 
@@ -120,9 +190,12 @@ export default function App() {
     setStatus("parsing");
 
     try {
-      const result = await orchestrateTranscript(trimmed);
+      const result = await orchestrateTranscript(trimmed, {
+        history: conversationHistory()
+      });
       setStatus("planning");
-      addMessage(buildAssistantReply(result.intent, result.plan));
+      addMessage(buildAssistantReply(result.intent, result.plan, result.assistantMessage));
+      await autoQueuePlanExecution(result.plan);
       setStatus("ready");
     } catch (caughtError) {
       const message =
@@ -147,9 +220,12 @@ export default function App() {
       setAudioFile(null);
       setStatus("parsing");
 
-      const result = await orchestrateTranscript(transcript);
+      const result = await orchestrateTranscript(transcript, {
+        history: conversationHistory()
+      });
       setStatus("planning");
-      addMessage(buildAssistantReply(result.intent, result.plan));
+      addMessage(buildAssistantReply(result.intent, result.plan, result.assistantMessage));
+      await autoQueuePlanExecution(result.plan);
       setStatus("ready");
     } catch (caughtError) {
       const message =
@@ -249,8 +325,8 @@ export default function App() {
 
       <section className="subhead">
         <p>
-          Speak or type what you want to do. The assistant replies with a safe plan and stops before
-          any risky action.
+          Speak or type what you want to do. The assistant turns clear requests into browser actions
+          and only pauses when the request is too vague to execute safely.
         </p>
       </section>
 
@@ -280,19 +356,12 @@ export default function App() {
                   </ol>
                 ) : null}
 
-                {message.requiresConfirmation || message.notes?.length ? (
+                {message.notes?.length ? (
                   <div className="message-meta">
                     {message.safetyLevel ? (
                       <span className="meta-chip">Safety: {message.safetyLevel}</span>
                     ) : null}
-                    {message.requiresConfirmation ? (
-                      <span className="meta-chip">Confirmation required</span>
-                    ) : null}
                   </div>
-                ) : null}
-
-                {message.confirmationMessage ? (
-                  <p className="message-note">{message.confirmationMessage}</p>
                 ) : null}
 
                 {message.notes?.length ? (
