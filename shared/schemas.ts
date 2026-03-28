@@ -1,0 +1,132 @@
+import { z } from "zod";
+
+export const assistantStatusSchema = z.enum([
+  "idle",
+  "transcribing",
+  "parsing",
+  "planning",
+  "ready",
+  "error"
+]);
+
+export const safetyLevelSchema = z.enum(["low", "medium", "high"]);
+
+export const intentTypeSchema = z.enum([
+  "open_page",
+  "fill_form",
+  "read_page",
+  "compose_message",
+  "search_web"
+]);
+
+export const messageDetailsSchema = z
+  .object({
+    recipient: z.string().nullable(),
+    subject: z.string().nullable(),
+    body: z.string().nullable()
+  })
+  .strict();
+
+export const intentSchema = z
+  .object({
+    type: intentTypeSchema,
+    summary: z.string().min(1),
+    page: z.string().nullable(),
+    target: z.string().nullable(),
+    query: z.string().nullable(),
+    fields: z.record(z.string(), z.string()).default({}),
+    message: messageDetailsSchema.nullable(),
+    requiresConfirmation: z.boolean(),
+    safetyLevel: safetyLevelSchema,
+    confirmationMessage: z.string().nullable(),
+    notes: z.array(z.string()).default([])
+  })
+  .strict();
+
+export const commandTypeSchema = z.enum([
+  "navigate",
+  "click",
+  "type",
+  "extract_text",
+  "confirm",
+  "search",
+  "compose_message"
+]);
+
+export const actionStepSchema = z
+  .object({
+    type: commandTypeSchema,
+    description: z.string().min(1),
+    target: z.string().optional(),
+    fieldHint: z.string().optional(),
+    value: z.string().optional(),
+    query: z.string().optional(),
+    message: z.string().optional(),
+    recipient: z.string().optional(),
+    subject: z.string().optional(),
+    body: z.string().optional(),
+    requiresConfirmation: z.boolean().default(false)
+  })
+  .strict();
+
+export const actionPlanSchema = z
+  .object({
+    summary: z.string().min(1),
+    steps: z.array(actionStepSchema).min(1),
+    requiresConfirmation: z.boolean(),
+    safetyLevel: safetyLevelSchema,
+    confirmationMessage: z.string().optional(),
+    notes: z.array(z.string()).default([])
+  })
+  .strict();
+
+export const parseIntentRequestSchema = z
+  .object({
+    transcript: z.string().min(1)
+  })
+  .strict();
+
+export const planRequestSchema = z
+  .object({
+    intent: intentSchema
+  })
+  .strict();
+
+export const orchestrateRequestSchema = parseIntentRequestSchema;
+
+export const transcriptionResponseSchema = z
+  .object({
+    transcript: z.string().min(1)
+  })
+  .strict();
+
+export const parseIntentResponseSchema = z
+  .object({
+    intent: intentSchema
+  })
+  .strict();
+
+export const actionPlanResponseSchema = z
+  .object({
+    plan: actionPlanSchema
+  })
+  .strict();
+
+export const orchestratorResponseSchema = z
+  .object({
+    transcript: z.string().min(1),
+    intent: intentSchema,
+    plan: actionPlanSchema,
+    statusMessages: z.array(z.string()).default([])
+  })
+  .strict();
+
+export type AssistantStatus = z.infer<typeof assistantStatusSchema>;
+export type SafetyLevel = z.infer<typeof safetyLevelSchema>;
+export type IntentType = z.infer<typeof intentTypeSchema>;
+export type MessageDetails = z.infer<typeof messageDetailsSchema>;
+export type Intent = z.infer<typeof intentSchema>;
+export type CommandType = z.infer<typeof commandTypeSchema>;
+export type ActionStep = z.infer<typeof actionStepSchema>;
+export type ActionPlan = z.infer<typeof actionPlanSchema>;
+export type OrchestratorResponse = z.infer<typeof orchestratorResponseSchema>;

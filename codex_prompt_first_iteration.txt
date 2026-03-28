@@ -1,0 +1,269 @@
+You are helping build the first iteration of an accessibility-focused hackathon project.
+
+Project context
+- This project is inspired by OpenClaw’s orchestration pattern, but it must NOT copy or depend on the full OpenClaw repo.
+- We are building our own lightweight, self-contained orchestration layer.
+- The product goal is an AI-powered assistive system that helps disabled users perform browser-based tasks more easily through voice.
+- For this first iteration, EXCLUDE the browser extension entirely.
+- Instead, produce structured commands that are ready to be consumed later by a browser extension.
+- We will use OpenAI’s API for all LLM and voice-related tasks.
+- This first iteration must be realistic for a hackathon, simple, clean, and runnable locally.
+
+What to build
+Build a local MVP that supports this flow:
+1. User speaks or records a voice command in the web app
+2. The app sends audio to OpenAI speech-to-text
+3. The transcript is shown to the user
+4. The transcript is sent to an orchestrator API
+5. The orchestrator uses an OpenAI model to convert the transcript into a structured intent
+6. The orchestrator turns the intent into a step-by-step action plan
+7. The app displays:
+   - transcript
+   - parsed intent
+   - planned steps
+   - status messages
+8. The final output should be “browser-extension-ready commands”, not real browser automation
+
+Important scope constraints
+- DO NOT build a browser extension yet
+- DO NOT implement real DOM interaction
+- DO NOT implement OpenClaw itself
+- DO NOT add unnecessary infrastructure
+- DO NOT add authentication
+- DO NOT add databases 
+- Keep the system local-first and self-contained
+- The code should be clear, minimal, and demo-friendly
+
+Primary user value of iteration 1
+This first version should already demonstrate the key idea:
+- voice input
+- AI understanding of user intent
+- AI decomposition of a browser task into safe structured actions
+- accessibility-focused interaction flow
+
+Recommended stack
+Use a simple monorepo or clean project structure with:
+- a frontend web app
+- a backend orchestrator API
+- a shared types package or shared folder if helpful
+
+Preferred technologies
+- Frontend: Next.js or React with TypeScript
+- Backend: Node.js + TypeScript, lightweight API routes or Express
+- Validation: Zod
+- OpenAI API for:
+  - speech-to-text
+  - intent parsing / reasoning
+- Styling: minimal clean UI, accessibility-first
+
+Core commands the system must support in this first iteration
+Support these example voice commands and commands like them:
+1. “Open the support page”
+2. “Fill this form with my saved details”
+3. “Read this page aloud”
+4. “Write a message to support saying I can’t log in”
+5. “Search for remote data analyst jobs”
+
+The system does not need real browser execution. Instead, it must output structured commands like:
+- navigate
+- click
+- type
+- extract_text
+- confirm
+- search
+- compose_message
+
+Required product behavior
+The app should feel like a calm accessibility assistant.
+It should:
+- show clear step-by-step progress
+- use plain language
+- surface confirmation requirements for risky actions
+- clearly separate:
+  - raw transcript
+  - parsed intent
+  - generated action plan
+- be easy to demo
+
+Design requirements
+Build a clean accessible interface with:
+- a large microphone / record action
+- an input fallback for typed commands in case voice is unavailable during development
+- a transcript panel
+- an intent panel
+- a planned actions panel
+- a status / reasoning panel
+- high contrast, clear spacing, large tap targets
+- simple labels and readable typography
+
+Functional requirements
+1. Frontend
+- A page with:
+  - title and short explanation
+  - record/upload audio option OR browser recording option
+  - text input fallback for command entry
+  - submit button
+  - transcript display
+  - parsed intent JSON display
+  - action plan display
+  - confirmation/safety notes display
+  - error display
+- Keep the UI simple and polished enough for demo use
+
+2. Backend API
+Create API endpoints for:
+- speech-to-text
+- command parsing / planning
+- optional combined endpoint that handles transcript -> intent -> plan
+
+3. Intent parsing
+Convert natural language into a structured intent schema.
+Use a strict JSON schema and validate it.
+
+Suggested intent types:
+- open_page
+- fill_form
+- read_page
+- compose_message
+- search_web
+
+Suggested intent schema shape
+Use TypeScript + Zod and validate returned data.
+Example structure:
+{
+  "type": "fill_form",
+  "page": "support",
+  "fields": {
+    "name": "Jaime Da Cruz",
+    "email": "jaime@example.com"
+  },
+  "requiresConfirmation": true,
+  "safetyLevel": "medium"
+}
+
+4. Action planning
+Translate the intent into browser-extension-ready step commands.
+Use a second explicit planning step in code.
+The planner should output structured steps like:
+{
+  "steps": [
+    { "type": "navigate", "target": "/support" },
+    { "type": "type", "fieldHint": "name", "value": "Jaime Da Cruz" },
+    { "type": "type", "fieldHint": "email", "value": "jaime@example.com" },
+    { "type": "confirm", "message": "Ready to submit the support form." }
+  ]
+}
+
+Suggested step command types
+- navigate
+- click
+- type
+- extract_text
+- confirm
+- search
+- compose_message
+
+5. Safety model
+Mark risky actions clearly.
+Examples of actions that should require confirmation:
+- sending messages
+- submitting forms
+- navigating away from a form after filling
+- any action that could have side effects
+
+The backend should attach safety metadata such as:
+- requiresConfirmation
+- safetyLevel
+- confirmationMessage
+
+6. Status and transparency
+The user should always see what the assistant is doing.
+Represent states like:
+- idle
+- transcribing
+- parsing
+- planning
+- ready
+- error
+
+Non-functional requirements
+- Strong TypeScript typing
+- Clean separation of concerns
+- Reusable shared schemas
+- Good error handling
+- Environment variables for OpenAI keys
+- Clear README with local setup steps
+- Minimal dependencies
+- Demo-friendly sample commands available in UI
+
+Implementation guidance
+Build the project in a way that is easy to extend later with a browser extension.
+That means:
+- keep the planner independent from execution
+- define clean command schemas now
+- do not mix UI logic with orchestration logic
+- keep all LLM-specific prompting in one backend folder
+
+Prompting requirements for the LLM
+Use a strong system prompt for intent parsing.
+The model must:
+- classify the intent into one of the supported intent types
+- extract relevant fields
+- infer confirmation requirements conservatively
+- return JSON only
+- avoid hallucinating unsupported actions
+- prefer safe outputs over ambitious ones
+
+Suggested parser behavior
+If a request is ambiguous, the system should still return a safe partial interpretation with notes.
+Example:
+- type = search_web
+- query = “remote data analyst jobs”
+- requiresConfirmation = false
+
+Suggested files / modules
+You may choose the exact structure, but include clear modules for:
+- openai client setup
+- speech transcription service
+- intent parser service
+- action planner service
+- zod schemas / shared types
+- API routes
+- frontend page/components
+
+Nice-to-have if simple
+- Sample command chips the user can click
+- Copy JSON button
+- Mock voice-state indicator
+- Simple accessibility notes in the UI
+
+What success looks like
+At the end, I should be able to:
+1. Run the project locally
+2. Provide a typed command or voice/audio command
+3. See a transcript
+4. See a validated intent object
+5. See a validated browser-ready action plan
+6. Demo how this would later connect to a browser extension
+
+Output expectations
+Please implement the first iteration fully.
+Provide:
+1. complete code
+2. clear project structure
+3. README with setup instructions
+4. .env.example
+5. comments only where helpful, not excessive
+
+Coding expectations
+- Use production-sensible patterns, but do not over-engineer
+- Keep the code understandable for hackathon speed
+- Prefer simple components and services
+- Make the UI look decent without spending too much time on design complexity
+- Make sure the app runs locally with minimal friction
+
+Very important architectural rule
+The planner must output commands that are extension-ready, but no command should be executed in the browser yet.
+This iteration is about understanding, planning, and accessibility UX transparency.
+
+Please start by creating the full project structure and implementing the first working end-to-end version.
