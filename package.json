@@ -7,8 +7,9 @@
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "tsx watch apps/api/src/server.ts",
     "dev:web": "vite --config apps/web/vite.config.ts",
-    "build": "tsup apps/api/src/server.ts --format esm --platform node --out-dir dist/api && vite build --config apps/web/vite.config.ts",
-    "check": "tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit"
+    "build": "tsup apps/api/src/server.ts --format esm --platform node --out-dir dist/api && vite build --config apps/web/vite.config.ts && node apps/extension/build.mjs",
+    "build:extension": "node apps/extension/build.mjs",
+    "check": "tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit && tsc -p apps/extension/tsconfig.json --noEmit"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -21,6 +22,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/chrome": "^0.1.29",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.3",
     "@types/multer": "^2.0.0",

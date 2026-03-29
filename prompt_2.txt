@@ -1,0 +1,233 @@
+You are working inside the existing accessibility-focused hackathon project.
+
+Your task is to update and improve the **feedback layer** so that spoken feedback uses the **OpenAI text-to-speech API** instead of the browser's native `speechSynthesis` voices.
+
+Important context:
+- The orchestrator already exists.
+- The Chrome extension already exists.
+- A first feedback layer may already exist.
+- Do NOT redesign the architecture.
+- Do NOT rebuild unrelated parts.
+- Focus on upgrading the spoken feedback path while keeping the system accessible, clean, and demo-ready.
+- Use OpenAI's API for all voice-related tasks in this project.
+
+## Goal
+Replace or abstract the current browser-native TTS path with an **OpenAI-powered speech output layer** that produces better spoken feedback quality while keeping the UX calm, concise, and accessibility-first.
+
+The user should still get:
+1. **Visual feedback** during task execution
+2. **Optional voice feedback**
+3. Clear status transitions so the user always understands what the system is doing
+
+The spoken feedback should feel higher quality than default browser TTS, but the product should remain practical for a hackathon demo.
+
+---
+
+## High-level requirements
+
+### 1. Use OpenAI text-to-speech for spoken feedback
+Implement spoken feedback through the OpenAI API rather than `speechSynthesis`.
+
+Requirements:
+- Route spoken status updates through the backend/orchestrator or the most appropriate secure layer
+- Do **not** expose API keys in frontend or extension code
+- Generate audio from text using OpenAI TTS
+- Return audio safely to the frontend for playback
+- Keep the implementation simple and reliable
+
+### 2. Keep voice feedback optional
+There should still be a UI toggle to enable or disable spoken feedback.
+
+Requirements:
+- Voice feedback should remain OFF by default unless the current product already has a clear accessibility preference system that suggests otherwise
+- The UI toggle should remain easy to understand
+- Spoken feedback should only occur for meaningful status updates, not every micro-event
+
+### 3. Preserve the visual feedback system
+Do not remove the current visual status layer.
+
+The product should still clearly show messages such as:
+- "Opening page..."
+- "Looking for the form..."
+- "Filling the email field..."
+- "Ready to submit. Waiting for confirmation."
+- "Done."
+- "I couldn't find the button."
+
+### 4. Integrate OpenAI TTS with feedback events
+The existing feedback event system should be used, or extended if needed.
+
+Support event types such as:
+- info
+- progress
+- success
+- warning
+- error
+- awaiting_confirmation
+
+Only some events should trigger spoken output.
+
+---
+
+## Spoken feedback behavior
+
+### Speak only meaningful updates
+Examples of messages that SHOULD usually be spoken:
+- "Opening the page now."
+- "Filling the form now."
+- "I found the submit button."
+- "I am ready to submit the form. Please confirm."
+- "I couldn't find that field."
+
+Examples that SHOULD NOT usually be spoken:
+- every tiny internal execution detail
+- repeated duplicate messages
+- noisy debug information
+
+### Avoid excessive chatter
+Implement guardrails such as:
+- de-duplication of repeated messages
+- minimum spacing between spoken updates if needed
+- cancellation/replacement strategy if a new higher-priority message arrives
+- prevent overlapping audio playback
+
+### Confirmation prompts must be spoken clearly
+For risky actions like:
+- submitting a form
+- sending a message
+- navigating away from unsaved content
+
+The system should speak a concise confirmation prompt such as:
+- "I am ready to submit the form. Please confirm."
+- "I wrote the message and I am ready to send it. Please confirm."
+
+---
+
+## Security and architecture requirements
+
+### 1. No API key exposure
+The OpenAI API key must never appear in:
+- frontend source
+- extension source
+- browser-exposed configs
+
+Use the backend/orchestrator or another secure server-side layer to call OpenAI.
+
+### 2. Add a small server-side TTS endpoint or service
+Implement a secure backend path that:
+- accepts short text for speech
+- validates input
+- calls OpenAI TTS
+- returns playable audio to the frontend
+
+Keep it simple and production-minded.
+
+### 3. Keep the interface modular
+Create or refine a small speech service abstraction so that the UI does not care whether speech came from:
+- OpenAI TTS
+- or a fallback provider if you decide to keep one behind the abstraction
+
+Suggested shape:
+- `speakFeedback(text, options?)`
+- backend `synthesizeFeedbackAudio(text, options?)`
+
+Do not force these exact names if the repo already has a better pattern.
+
+---
+
+## Suggested implementation direction
+
+Use the current architecture and implement something close to this if appropriate:
+
+### Backend / orchestrator
+- add a TTS service module
+- add a secure endpoint for TTS generation
+- call OpenAI from the backend only
+- validate text length and input type
+- optionally support a small set of allowed voice/style options
+- return audio in a format that the frontend can play easily
+
+### Frontend
+- keep the voice feedback toggle
+- on eligible feedback events, request generated speech audio from backend
+- play the returned audio
+- handle loading, cancellation, and playback errors gracefully
+
+### Feedback coordination
+- only speak selected feedback events
+- map event types / states to speakable messages
+- avoid duplicate spoken messages
+
+---
+
+## Reliability requirements
+
+Because this is a hackathon project, keep the implementation robust and demo-friendly.
+
+Requirements:
+- if OpenAI TTS fails, the UI should still continue working visually
+- spoken feedback failure must not block task execution
+- handle network or playback errors gracefully
+- log meaningful errors for development without cluttering the UI
+- optionally support a silent fallback path if TTS is unavailable
+
+Do not over-engineer retries unless the project already has a pattern for them.
+
+---
+
+## Accessibility-first requirements
+
+The spoken feedback system should improve accessibility, especially for:
+- users with low vision
+- users with motor impairments
+- users with cognitive overload
+
+Requirements:
+- concise, plain-language spoken output
+- no overwhelming verbosity
+- one main spoken idea at a time
+- keep visual status as the primary truth on screen
+- maintain screen-reader-friendly status regions if already present
+
+---
+
+## Implementation expectations
+
+Please:
+1. Inspect the existing project structure first
+2. Identify where the current feedback and voice logic lives
+3. Replace or refactor the browser-native TTS path cleanly
+4. Reuse current state management patterns where possible
+5. Add only the minimum necessary files and changes
+6. Keep the code modular and easy to understand
+7. Do not add unnecessary dependencies unless absolutely needed
+
+---
+
+## Deliverables
+Implement the code changes needed for:
+- OpenAI-based spoken feedback
+- secure server-side TTS generation
+- frontend playback integration
+- continued visual feedback support
+- graceful fallback behavior if TTS fails
+
+Also provide:
+1. A short summary of what you changed
+2. A list of files created or modified
+3. Any environment variables required
+4. Manual test steps
+5. Example commands I can run in the app to test spoken feedback behavior
+
+---
+
+## Quality bar
+The result should feel noticeably better than default browser TTS while staying simple enough for a hackathon demo.
+
+When a user speaks a command, the system should:
+- show what it is doing
+- optionally speak the most important progress updates
+- clearly announce when confirmation is needed
+- never block the workflow if speech generation fails
+
+Keep the implementation practical, secure, and polished.

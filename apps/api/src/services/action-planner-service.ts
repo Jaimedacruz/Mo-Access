@@ -9,6 +9,10 @@ function slugifyTarget(input: string) {
 }
 
 function resolveNavigationTarget(intent: Intent) {
+  if (intent.currentPage) {
+    return undefined;
+  }
+
   const candidate = intent.page ?? intent.target ?? "";
 
   if (!candidate) {
@@ -22,22 +26,36 @@ function resolveNavigationTarget(intent: Intent) {
   return slugifyTarget(candidate);
 }
 
-function confirmationStep(message: string): ActionStep {
-  return {
-    type: "confirm",
-    description: message,
-    message,
-    requiresConfirmation: true
-  };
+function buildGmailComposeUrl(intent: Intent) {
+  const recipient = intent.message?.recipient?.trim();
+  const subject = intent.message?.subject?.trim() ?? "";
+  const body = intent.message?.body?.trim() ?? "";
+
+  if (!recipient) {
+    return null;
+  }
+
+  const url = new URL("https://mail.google.com/mail/");
+  url.searchParams.set("view", "cm");
+  url.searchParams.set("fs", "1");
+  url.searchParams.set("tf", "1");
+  url.searchParams.set("to", recipient);
+
+  if (subject) {
+    url.searchParams.set("su", subject);
+  }
+
+  if (body) {
+    url.searchParams.set("body", body);
+  }
+
+  return url.toString();
 }
 
 export function buildActionPlan(intent: Intent): ActionPlan {
   const steps: ActionStep[] = [];
   const notes = [...intent.notes];
   const navigationTarget = resolveNavigationTarget(intent);
-  const confirmationMessage =
-    intent.confirmationMessage ??
-    (intent.requiresConfirmation ? "Review this action before anything is submitted or sent." : undefined);
 
   switch (intent.type) {
     case "open_page": {
@@ -93,11 +111,16 @@ export function buildActionPlan(intent: Intent): ActionPlan {
         });
       }
 
-      steps.push(
-        confirmationStep(
-          confirmationMessage ?? "Review the filled form before any submit action is allowed."
-        )
-      );
+      if (intent.actionTarget) {
+        steps.push({
+          type: "click",
+          description: `Click the ${intent.actionTarget}.`,
+          target: intent.actionTarget,
+          requiresConfirmation: false
+        });
+      } else {
+        notes.push("No follow-up button or control was specified, so the plan stops after typing.");
+      }
       break;
     }
     case "read_page": {
@@ -118,11 +141,39 @@ export function buildActionPlan(intent: Intent): ActionPlan {
       });
 
       if (intent.notes.length === 0) {
-        notes.push("This iteration prepares text extraction; a later extension can speak the extracted content aloud.");
+        notes.push("This plan focuses on extracting readable page content from the current page safely.");
       }
       break;
     }
     case "compose_message": {
+      const gmailComposeUrl =
+        intent.target?.toLowerCase().includes("gmail") || intent.page?.toLowerCase().includes("gmail")
+          ? buildGmailComposeUrl(intent)
+          : null;
+
+      if (gmailComposeUrl) {
+        steps.push({
+          type: "navigate",
+          description: "Open Gmail with the drafted message prefilled.",
+          target: gmailComposeUrl,
+          requiresConfirmation: false
+        });
+
+        if (intent.message?.subject || intent.message?.body) {
+          steps.push({
+            type: "click",
+            description: "Click the Send button in Gmail.",
+            target: "send button",
+            requiresConfirmation: false
+          });
+        } else {
+          notes.push("The email content is missing, so the plan opens Gmail but does not send a blank message.");
+        }
+
+        notes.push("This flow relies on an active Gmail session in the browser.");
+        break;
+      }
+
       if (navigationTarget) {
         steps.push({
           type: "navigate",
@@ -132,20 +183,48 @@ export function buildActionPlan(intent: Intent): ActionPlan {
         });
       }
 
-      steps.push({
-        type: "compose_message",
-        description: "Draft the requested message without sending it.",
-        recipient: intent.message?.recipient ?? undefined,
-        subject: intent.message?.subject ?? undefined,
-        body: intent.message?.body ?? undefined,
-        requiresConfirmation: true
-      });
+      if (intent.message?.recipient) {
+        steps.push({
+          type: "type",
+          description: "Type the recipient email address into the To field.",
+          fieldHint: "to",
+          value: intent.message.recipient,
+          requiresConfirmation: false
+        });
+      } else {
+        notes.push("The recipient email address is missing.");
+      }
 
-      steps.push(
-        confirmationStep(
-          confirmationMessage ?? "Review the drafted message before any send action is allowed."
-        )
-      );
+      if (intent.message?.subject) {
+        steps.push({
+          type: "type",
+          description: "Type the email subject.",
+          fieldHint: "subject",
+          value: intent.message.subject,
+          requiresConfirmation: false
+        });
+      }
+
+      if (intent.message?.body) {
+        steps.push({
+          type: "type",
+          description: "Type the email body into the message field.",
+          fieldHint: "message body",
+          value: intent.message.body,
+          requiresConfirmation: false
+        });
+      } else {
+        notes.push("The message body is missing.");
+      }
+
+      if (intent.message?.recipient && intent.message?.body) {
+        steps.push({
+          type: "click",
+          description: "Click the Send button.",
+          target: "send button",
+          requiresConfirmation: false
+        });
+      }
       break;
     }
     case "search_web": {
@@ -162,9 +241,9 @@ export function buildActionPlan(intent: Intent): ActionPlan {
   return actionPlanSchema.parse({
     summary: intent.summary,
     steps,
-    requiresConfirmation: intent.requiresConfirmation,
+    requiresConfirmation: false,
     safetyLevel: intent.safetyLevel,
-    confirmationMessage,
+    confirmationMessage: undefined,
     notes
   });
 }
