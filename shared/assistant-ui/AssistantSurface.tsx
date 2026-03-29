@@ -18,6 +18,7 @@ import {
   getAgentState,
   getExtensionCommandResult,
   startAgentRun,
+  summarizeBrowserPage,
   transcribeAudio
 } from "./api";
 import {
@@ -366,7 +367,25 @@ export function AssistantSurface({
       try {
         const result = await waitForCommandResult(step.commandId, 2_000);
         addFeedbackEvent(buildExecutionFeedbackEvent(result));
-        const executionMessage = buildExecutionResultMessage(result);
+        let executionMessage = buildExecutionResultMessage(result);
+
+        if (
+          result.ok &&
+          result.pageContext &&
+          (result.action === "extract_text_blocks" || result.action === "get_page_context") &&
+          nextRun.goal
+        ) {
+          try {
+            const summary = await summarizeBrowserPage(nextRun.goal, result.pageContext);
+            executionMessage = {
+              content: summary.summary,
+              tone: "default"
+            };
+          } catch {
+            // Fall back to the local extract-text message if summarization fails.
+          }
+        }
+
         addMessage({
           id: createId(),
           role: "assistant",

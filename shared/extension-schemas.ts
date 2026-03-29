@@ -32,6 +32,7 @@ export const extensionFieldEntrySchema = z
 
 export const extensionWaitMatchTypeSchema = z.enum(["clickable", "field", "either"]);
 export const extensionScrollDirectionSchema = z.enum(["up", "down", "top", "bottom"]);
+export const richTextFormatSchema = z.enum(["bold", "italic", "underline", "heading", "bullet_list", "numbered_list"]);
 
 export const extensionCommandSchema = z.discriminatedUnion("type", [
   z
@@ -133,6 +134,192 @@ export const extensionCommandSchema = z.discriminatedUnion("type", [
       matchType: extensionWaitMatchTypeSchema.default("either"),
       timeoutMs: z.number().int().positive().max(30000).default(8000),
       intervalMs: z.number().int().positive().max(5000).default(350)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("search_youtube"),
+      query: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("open_search_result"),
+      index: z.number().int().positive().default(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("play_video")
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("pause_video")
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("mute_video")
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("unmute_video")
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("seek_forward"),
+      seconds: z.number().int().positive().default(10)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("seek_backward"),
+      seconds: z.number().int().positive().default(10)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("fullscreen_video")
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("create_event"),
+      title: z.string().min(1),
+      date: z.string().nullable().optional(),
+      time: z.string().nullable().optional(),
+      endTime: z.string().nullable().optional(),
+      details: z.string().nullable().optional(),
+      guestEmail: z.string().nullable().optional()
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("edit_event"),
+      title: z.string().nullable().optional(),
+      details: z.string().nullable().optional()
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("delete_event"),
+      title: z.string().nullable().optional()
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("open_date"),
+      date: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("add_guest"),
+      guestEmail: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("set_time"),
+      time: z.string().min(1),
+      endTime: z.string().nullable().optional()
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("create_doc"),
+      title: z.string().nullable().optional()
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("rename_doc"),
+      title: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("insert_text"),
+      text: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("select_text"),
+      text: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("apply_format"),
+      format: richTextFormatSchema
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("open_doc"),
+      title: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("open_folder"),
+      name: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("create_doc_from_drive"),
+      title: z.string().nullable().optional()
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("upload_file"),
+      fileName: z.string().nullable().optional()
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("rename_file"),
+      currentName: z.string().nullable().optional(),
+      newName: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("move_file"),
+      fileName: z.string().nullable().optional(),
+      folderName: z.string().min(1)
     })
     .strict()
 ]);
@@ -247,6 +434,7 @@ export type ExtensionFieldEntry = z.infer<typeof extensionFieldEntrySchema>;
 export type ExtensionFormSummary = z.infer<typeof extensionFormSummarySchema>;
 export type ExtensionHeartbeat = z.infer<typeof extensionHeartbeatSchema>;
 export type ExtensionPageContext = z.infer<typeof extensionPageContextSchema>;
+export type RichTextFormat = z.infer<typeof richTextFormatSchema>;
 export type ExtensionScrollDirection = z.infer<typeof extensionScrollDirectionSchema>;
 export type ExtensionTarget = z.infer<typeof extensionTargetSchema>;
 export type ExtensionTextBlock = z.infer<typeof extensionTextBlockSchema>;

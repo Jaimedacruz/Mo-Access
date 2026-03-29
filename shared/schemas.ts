@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extensionPageContextSchema } from "./extension-schemas";
 
 export const assistantStatusSchema = z.enum([
   "idle",
@@ -76,6 +77,32 @@ export const commandTypeSchema = z.enum([
   "press_key",
   "wait_for_element",
   "extract_text",
+  "search_youtube",
+  "open_search_result",
+  "play_video",
+  "pause_video",
+  "mute_video",
+  "unmute_video",
+  "seek_forward",
+  "seek_backward",
+  "fullscreen_video",
+  "create_event",
+  "edit_event",
+  "delete_event",
+  "open_date",
+  "add_guest",
+  "set_time",
+  "create_doc",
+  "rename_doc",
+  "insert_text",
+  "select_text",
+  "apply_format",
+  "open_doc",
+  "open_folder",
+  "create_doc_from_drive",
+  "upload_file",
+  "rename_file",
+  "move_file",
   "confirm",
   "search",
   "compose_message"
@@ -93,6 +120,20 @@ export const actionStepSchema = z
     recipient: z.string().optional(),
     subject: z.string().optional(),
     body: z.string().optional(),
+    date: z.string().optional(),
+    time: z.string().optional(),
+    endTime: z.string().optional(),
+    guestEmail: z.string().optional(),
+    title: z.string().optional(),
+    details: z.string().optional(),
+    text: z.string().optional(),
+    format: z.string().optional(),
+    index: z.number().int().positive().optional(),
+    seconds: z.number().int().positive().optional(),
+    fileName: z.string().optional(),
+    currentName: z.string().optional(),
+    newName: z.string().optional(),
+    folderName: z.string().optional(),
     requiresConfirmation: z.boolean().default(false)
   })
   .strict();
@@ -143,6 +184,17 @@ export const feedbackSpeechRequestSchema = z
   .object({
     text: z.string().min(1).max(320),
     voice: feedbackSpeechVoiceSchema.optional()
+  })
+  .strict();
+export const pageSummaryRequestSchema = z
+  .object({
+    request: z.string().min(1),
+    pageContext: extensionPageContextSchema
+  })
+  .strict();
+export const pageSummaryResponseSchema = z
+  .object({
+    summary: z.string().min(1)
   })
   .strict();
 export const agentRunStepSchema = z
@@ -267,6 +319,8 @@ export type ActionStep = z.infer<typeof actionStepSchema>;
 export type ActionPlan = z.infer<typeof actionPlanSchema>;
 export type OrchestratorResponse = z.infer<typeof orchestratorResponseSchema>;
 export type FeedbackSpeechRequest = z.infer<typeof feedbackSpeechRequestSchema>;
+export type PageSummaryRequest = z.infer<typeof pageSummaryRequestSchema>;
+export type PageSummaryResponse = z.infer<typeof pageSummaryResponseSchema>;
 export type AgentRunStep = z.infer<typeof agentRunStepSchema>;
 export type AgentRun = z.infer<typeof agentRunSchema>;
 export type AgentLoopOutcome = z.infer<typeof agentLoopOutcomeSchema>;

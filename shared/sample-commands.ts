@@ -1,9 +1,11 @@
 export const sampleCommands = [
   "Open the support page",
+  "Open YouTube",
+  "Open Google Drive",
   "Fill this form with my saved details",
   "Read this page aloud",
   "Write a message to support saying I can't log in",
-  "Search for remote data analyst jobs"
+  "Search lo-fi beats on YouTube"
 ] as const;
 
 export const statusLabels = {

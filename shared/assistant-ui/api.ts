@@ -6,10 +6,12 @@ import {
   extensionBridgeStateSchema,
   extensionCommandResultSchema,
   feedbackSpeechRequestSchema,
+  pageSummaryResponseSchema,
   transcriptionResponseSchema,
   type AgentContinueResponse,
   type AgentStartResponse,
   type AgentStateResponse,
+  type ExtensionPageContext,
   type FeedbackSpeechRequest
 } from "../index";
 
@@ -77,6 +79,21 @@ export async function synthesizeFeedbackAudio(
   }
 
   return response.blob();
+}
+
+export async function summarizeBrowserPage(request: string, pageContext: ExtensionPageContext) {
+  const response = await fetch(`${resolveApiBaseUrl()}/api/page-summary`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      request,
+      pageContext
+    })
+  });
+
+  return parseJsonResponse(response, pageSummaryResponseSchema);
 }
 
 export async function startAgentRun(

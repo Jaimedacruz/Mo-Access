@@ -61,10 +61,267 @@ function hasCompleteEmailRecipient(intent: Intent) {
   return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(recipient);
 }
 
+function specialCommand(intent: Intent) {
+  return intent.fields["__app_command"] ?? null;
+}
+
+function specialValue(intent: Intent, key: string) {
+  const value = intent.fields[key];
+  return value && value.trim() ? value.trim() : undefined;
+}
+
+function maybeBuildGoogleAppControllerSteps(intent: Intent) {
+  const command = specialCommand(intent);
+  if (!command) {
+    return null;
+  }
+
+  switch (command) {
+    case "search_youtube":
+      return [
+        {
+          type: "search_youtube",
+          description: `Search YouTube for ${specialValue(intent, "query") ?? "the requested topic"}.`,
+          query: specialValue(intent, "query"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "open_search_result":
+      return [
+        {
+          type: "open_search_result",
+          description: `Open search result ${specialValue(intent, "index") ?? "1"}.`,
+          index: Number.parseInt(specialValue(intent, "index") ?? "1", 10),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "play_video":
+    case "pause_video":
+    case "mute_video":
+    case "unmute_video":
+    case "fullscreen_video":
+      return [
+        {
+          type: command,
+          description: intent.summary,
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "seek_forward":
+    case "seek_backward":
+      return [
+        {
+          type: command,
+          description: intent.summary,
+          seconds: Number.parseInt(specialValue(intent, "seconds") ?? "10", 10),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "create_event":
+      return [
+        {
+          type: "create_event",
+          description: intent.summary,
+          title: specialValue(intent, "title"),
+          date: specialValue(intent, "date"),
+          time: specialValue(intent, "time"),
+          requiresConfirmation: false
+        },
+        {
+          type: "click",
+          description: "Click the Save button in Google Calendar.",
+          target: "save button",
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "edit_event":
+      return [
+        {
+          type: "edit_event",
+          description: intent.summary,
+          title: specialValue(intent, "title"),
+          details: specialValue(intent, "details"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "delete_event":
+      return [
+        {
+          type: "delete_event",
+          description: intent.summary,
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "open_date":
+      return [
+        {
+          type: "open_date",
+          description: intent.summary,
+          date: specialValue(intent, "date"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "add_guest":
+      return [
+        {
+          type: "add_guest",
+          description: intent.summary,
+          guestEmail: specialValue(intent, "guestEmail"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "set_time":
+      return [
+        {
+          type: "set_time",
+          description: intent.summary,
+          time: specialValue(intent, "time"),
+          endTime: specialValue(intent, "endTime"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "create_doc":
+      return [
+        {
+          type: "create_doc",
+          description: intent.summary,
+          title: specialValue(intent, "title"),
+          requiresConfirmation: false
+        },
+        ...(specialValue(intent, "title")
+          ? [
+              {
+                type: "rename_doc",
+                description: `Rename the new Google Doc to ${specialValue(intent, "title")}.`,
+                title: specialValue(intent, "title"),
+                requiresConfirmation: false
+              } satisfies ActionStep
+            ]
+          : [])
+      ] satisfies ActionStep[];
+    case "rename_doc":
+      return [
+        {
+          type: "rename_doc",
+          description: intent.summary,
+          title: specialValue(intent, "title"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "insert_text":
+      return [
+        {
+          type: "insert_text",
+          description: intent.summary,
+          text: specialValue(intent, "text"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "select_text":
+      return [
+        {
+          type: "select_text",
+          description: intent.summary,
+          text: specialValue(intent, "text"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "apply_format":
+      return [
+        {
+          type: "apply_format",
+          description: intent.summary,
+          format: specialValue(intent, "format"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "open_doc":
+      return [
+        {
+          type: "open_doc",
+          description: intent.summary,
+          title: specialValue(intent, "title"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "open_folder":
+      return [
+        {
+          type: "open_folder",
+          description: intent.summary,
+          folderName: specialValue(intent, "folderName"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "create_doc_from_drive":
+      return [
+        {
+          type: "create_doc_from_drive",
+          description: intent.summary,
+          title: specialValue(intent, "title"),
+          requiresConfirmation: false
+        },
+        ...(specialValue(intent, "title")
+          ? [
+              {
+                type: "rename_doc",
+                description: `Rename the new Google Doc to ${specialValue(intent, "title")}.`,
+                title: specialValue(intent, "title"),
+                requiresConfirmation: false
+              } satisfies ActionStep
+            ]
+          : [])
+      ] satisfies ActionStep[];
+    case "upload_file":
+      return [
+        {
+          type: "upload_file",
+          description: intent.summary,
+          fileName: specialValue(intent, "fileName"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "rename_file":
+      return [
+        {
+          type: "rename_file",
+          description: intent.summary,
+          currentName: specialValue(intent, "currentName"),
+          newName: specialValue(intent, "newName"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "move_file":
+      return [
+        {
+          type: "move_file",
+          description: intent.summary,
+          fileName: specialValue(intent, "fileName"),
+          folderName: specialValue(intent, "folderName"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    default:
+      return null;
+  }
+}
+
 export function buildActionPlan(intent: Intent): ActionPlan {
-  const steps: ActionStep[] = [];
+  const specialSteps = maybeBuildGoogleAppControllerSteps(intent);
+  const steps: ActionStep[] = specialSteps ? [...specialSteps] : [];
   const notes = [...intent.notes];
   const navigationTarget = resolveNavigationTarget(intent);
+
+  if (specialSteps) {
+    return actionPlanSchema.parse({
+      summary: intent.summary,
+      steps,
+      requiresConfirmation: false,
+      safetyLevel: intent.safetyLevel,
+      confirmationMessage: undefined,
+      notes
+    });
+  }
 
   switch (intent.type) {
     case "open_page": {
@@ -75,6 +332,18 @@ export function buildActionPlan(intent: Intent): ActionPlan {
           target: navigationTarget,
           requiresConfirmation: false
         });
+
+        if (
+          intent.notes.some((note) => /extract the visible result and answer the user's question/i.test(note)) ||
+          /\breturn the answer\b|\bgive me a summary\b|\bsummar/i.test(intent.summary)
+        ) {
+          steps.push({
+            type: "extract_text",
+            description: "Read the visible app results and answer the user's question.",
+            target: "visible-app-results",
+            requiresConfirmation: false
+          });
+        }
       } else if (intent.target) {
         steps.push({
           type: "search",
@@ -246,6 +515,18 @@ export function buildActionPlan(intent: Intent): ActionPlan {
         query: intent.query ?? intent.summary,
         requiresConfirmation: false
       });
+
+      if (
+        intent.notes.some((note) => /extract the result and answer the user's question/i.test(note)) ||
+        /\breturn the answer\b|\bwhat is\b|\bwho is\b|\bhow old\b|\bhow much\b|\bwhen\b|\bwhere\b/i.test(intent.summary)
+      ) {
+        steps.push({
+          type: "extract_text",
+          description: "Read the visible search results and answer the user's question.",
+          target: "visible-search-results",
+          requiresConfirmation: false
+        });
+      }
       break;
     }
   }

@@ -9,6 +9,12 @@ import { describeElement } from "./dom/element-utils";
 import { extractPageContext } from "./dom/extractPageContext";
 import { findClickable } from "./dom/findClickable";
 import { findField } from "./dom/findField";
+import {
+  handleCalendarCommand,
+  handleDocsCommand,
+  handleDriveCommand,
+  handleYouTubeCommand
+} from "./dom/google-app-controllers";
 import { mountAssistantOverlay } from "./overlay";
 
 function ambiguousResult(command: ExtensionCommand, message: string, candidates: ExtensionCommandResult["candidates"]) {
@@ -255,9 +261,39 @@ async function runCommand(command: ExtensionCommand): Promise<ExtensionCommandRe
       return scrollPage(command);
     case "press_key":
       return pressKey(command);
+    case "open_search_result":
+    case "play_video":
+    case "pause_video":
+    case "mute_video":
+    case "unmute_video":
+    case "seek_forward":
+    case "seek_backward":
+    case "fullscreen_video":
+      return handleYouTubeCommand(command);
+    case "edit_event":
+    case "delete_event":
+    case "add_guest":
+    case "set_time":
+      return handleCalendarCommand(command);
+    case "rename_doc":
+    case "insert_text":
+    case "select_text":
+    case "apply_format":
+    case "open_doc":
+      return handleDocsCommand(command);
+    case "open_folder":
+    case "upload_file":
+    case "rename_file":
+    case "move_file":
+      return handleDriveCommand(command);
     case "navigate":
     case "open_new_tab":
     case "switch_tab":
+    case "search_youtube":
+    case "create_event":
+    case "open_date":
+    case "create_doc":
+    case "create_doc_from_drive":
       return {
         commandId: command.id,
         ok: false,

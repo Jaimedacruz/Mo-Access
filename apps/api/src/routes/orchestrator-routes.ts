@@ -4,6 +4,8 @@ import {
   actionPlanResponseSchema,
   agentContinueRequestSchema,
   agentContinueResponseSchema,
+  pageSummaryRequestSchema,
+  pageSummaryResponseSchema,
   agentStartRequestSchema,
   agentStartResponseSchema,
   agentStateResponseSchema,
@@ -126,6 +128,21 @@ orchestratorRouter.post("/feedback/speech", async (request, response, next) => {
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Content-Length", String(audioBuffer.byteLength));
     response.send(audioBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+orchestratorRouter.post("/page-summary", async (request, response, next) => {
+  try {
+    const { request: summaryRequest, pageContext } = pageSummaryRequestSchema.parse(request.body);
+    const summary = await summarizePageContext(summaryRequest, pageContext);
+
+    response.json(
+      pageSummaryResponseSchema.parse({
+        summary
+      })
+    );
   } catch (error) {
     next(error);
   }
