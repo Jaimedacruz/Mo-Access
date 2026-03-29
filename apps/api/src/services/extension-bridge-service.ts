@@ -9,6 +9,7 @@ type ExtensionBridgeState = {
   pendingCommands: ExtensionCommand[];
   inFlightCommands: Map<string, ExtensionCommand>;
   commandHistory: Map<string, ExtensionCommand>;
+  resultHistory: Map<string, ExtensionCommandResult>;
   lastHeartbeat: ExtensionHeartbeat | null;
   lastResult: ExtensionCommandResult | null;
   lastPageContext: ExtensionPageContext | null;
@@ -18,6 +19,7 @@ const bridgeState: ExtensionBridgeState = {
   pendingCommands: [],
   inFlightCommands: new Map(),
   commandHistory: new Map(),
+  resultHistory: new Map(),
   lastHeartbeat: null,
   lastResult: null,
   lastPageContext: null
@@ -55,6 +57,7 @@ export function recordExtensionHeartbeat(heartbeat: ExtensionHeartbeat) {
 export function recordExtensionResult(result: ExtensionCommandResult) {
   bridgeState.lastResult = result;
   bridgeState.inFlightCommands.delete(result.commandId);
+  bridgeState.resultHistory.set(result.commandId, result);
 
   const waiter = resultWaiters.get(result.commandId);
   if (waiter) {
@@ -84,6 +87,10 @@ export function getLastExtensionPageContext() {
 
 export function getExtensionCommand(commandId: string) {
   return bridgeState.inFlightCommands.get(commandId) ?? bridgeState.commandHistory.get(commandId) ?? null;
+}
+
+export function getExtensionResult(commandId: string) {
+  return bridgeState.resultHistory.get(commandId) ?? null;
 }
 
 export async function waitForExtensionResult(commandId: string, timeoutMs = 8_000) {

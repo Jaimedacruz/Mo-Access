@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import {
   actionPlanResponseSchema,
+  feedbackSpeechRequestSchema,
   intentSchema,
   orchestrateRequestSchema,
   orchestratorResponseSchema,
@@ -13,6 +14,7 @@ import {
 import { env } from "../config";
 import { buildActionPlan } from "../services/action-planner-service";
 import { getExtensionBridgeState, getLastExtensionPageContext, requestFreshPageContext } from "../services/extension-bridge-service";
+import { synthesizeFeedbackAudio } from "../services/feedback-speech-service";
 import { parseIntent } from "../services/intent-parser-service";
 import { summarizePageContext } from "../services/page-summary-service";
 import {
@@ -94,6 +96,20 @@ orchestratorRouter.post(
     }
   }
 );
+
+orchestratorRouter.post("/feedback/speech", async (request, response, next) => {
+  try {
+    const { text, voice } = feedbackSpeechRequestSchema.parse(request.body);
+    const audioBuffer = await synthesizeFeedbackAudio(text, { voice });
+
+    response.setHeader("Content-Type", "audio/mpeg");
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Content-Length", String(audioBuffer.byteLength));
+    response.send(audioBuffer);
+  } catch (error) {
+    next(error);
+  }
+});
 
 orchestratorRouter.post("/parse-intent", async (request, response, next) => {
   try {

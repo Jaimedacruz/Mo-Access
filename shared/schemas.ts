@@ -10,6 +10,15 @@ export const assistantStatusSchema = z.enum([
 ]);
 
 export const safetyLevelSchema = z.enum(["low", "medium", "high"]);
+export const feedbackEventTypeSchema = z.enum([
+  "info",
+  "progress",
+  "success",
+  "warning",
+  "error",
+  "awaiting_confirmation"
+]);
+export const feedbackSpeechVoiceSchema = z.enum(["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"]);
 
 export const intentTypeSchema = z.enum([
   "open_page",
@@ -113,6 +122,12 @@ export const planRequestSchema = z
   .strict();
 
 export const orchestrateRequestSchema = parseIntentRequestSchema;
+export const feedbackSpeechRequestSchema = z
+  .object({
+    text: z.string().min(1).max(320),
+    voice: feedbackSpeechVoiceSchema.optional()
+  })
+  .strict();
 
 export const transcriptionResponseSchema = z
   .object({
@@ -144,6 +159,8 @@ export const orchestratorResponseSchema = z
 
 export type AssistantStatus = z.infer<typeof assistantStatusSchema>;
 export type SafetyLevel = z.infer<typeof safetyLevelSchema>;
+export type FeedbackEventType = z.infer<typeof feedbackEventTypeSchema>;
+export type FeedbackSpeechVoice = z.infer<typeof feedbackSpeechVoiceSchema>;
 export type IntentType = z.infer<typeof intentTypeSchema>;
 export type MessageDetails = z.infer<typeof messageDetailsSchema>;
 export type Intent = z.infer<typeof intentSchema>;
@@ -151,3 +168,4 @@ export type CommandType = z.infer<typeof commandTypeSchema>;
 export type ActionStep = z.infer<typeof actionStepSchema>;
 export type ActionPlan = z.infer<typeof actionPlanSchema>;
 export type OrchestratorResponse = z.infer<typeof orchestratorResponseSchema>;
+export type FeedbackSpeechRequest = z.infer<typeof feedbackSpeechRequestSchema>;

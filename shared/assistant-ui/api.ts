@@ -1,10 +1,13 @@
 import {
   extensionBridgeStateSchema,
+  extensionCommandResultSchema,
   extensionExecuteResponseSchema,
+  feedbackSpeechRequestSchema,
   orchestratorResponseSchema,
   transcriptionResponseSchema,
   type ActionPlan,
   type ExtensionCommand,
+  type FeedbackSpeechRequest,
   type ExtensionTarget,
   type OrchestratorResponse
 } from "../index";
@@ -55,6 +58,38 @@ export async function transcribeAudio(file: File) {
   return parseJsonResponse(response, transcriptionResponseSchema);
 }
 
+export async function synthesizeFeedbackAudio(
+  request: FeedbackSpeechRequest,
+  options?: { signal?: AbortSignal }
+) {
+  const payload = feedbackSpeechRequestSchema.parse(request);
+  const response = await fetch(`${resolveApiBaseUrl()}/api/feedback/speech`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload),
+    signal: options?.signal
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Speech synthesis failed.";
+
+    try {
+      const payload = await response.json();
+      if (typeof payload?.error === "string") {
+        errorMessage = payload.error;
+      }
+    } catch {
+      // Ignore JSON parsing failures for binary responses.
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  return response.blob();
+}
+
 export async function orchestrateTranscript(
   transcript: string,
   options?: OrchestrateOptions
@@ -78,6 +113,11 @@ export async function getExtensionState() {
   return parseJsonResponse(response, extensionBridgeStateSchema);
 }
 
+export async function getExtensionCommandResult(commandId: string) {
+  const response = await fetch(`${resolveApiBaseUrl()}/api/extension/result/${encodeURIComponent(commandId)}`);
+  return parseJsonResponse(response, extensionCommandResultSchema);
+}
+
 export async function queueExtensionCommand(command: ExtensionCommand) {
   const response = await fetch(`${resolveApiBaseUrl()}/api/extension/execute`, {
     method: "POST",
@@ -90,7 +130,10 @@ export async function queueExtensionCommand(command: ExtensionCommand) {
   return parseJsonResponse(response, extensionExecuteResponseSchema);
 }
 
-export function mapPlanToExtensionCommands(plan: ActionPlan) {
+export function mapPlanToExtensionCommands(
+  plan: ActionPlan,
+  options?: { newTabForNavigation?: boolean }
+) {
   const commands: ExtensionCommand[] = [];
 
   for (const [index, step] of plan.steps.entries()) {
@@ -103,7 +146,7 @@ export function mapPlanToExtensionCommands(plan: ActionPlan) {
             id,
             type: "navigate",
             url: step.target.startsWith("http") ? step.target : `http://localhost:5173${step.target}`,
-            newTab: false
+            newTab: options?.newTabForNavigation ?? false
           });
         }
         break;
@@ -145,7 +188,7 @@ export function mapPlanToExtensionCommands(plan: ActionPlan) {
             id,
             type: "navigate",
             url: `https://www.google.com/search?q=${encodeURIComponent(step.query)}`,
-            newTab: false
+            newTab: options?.newTabForNavigation ?? false
           });
         }
         break;

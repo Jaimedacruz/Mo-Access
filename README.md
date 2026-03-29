@@ -28,6 +28,7 @@ This iteration does not automate the browser. It only:
 - OpenAI API:
   - `gpt-4o-mini-transcribe` for speech-to-text
   - `gpt-5.4-mini` for structured intent parsing
+  - `gpt-4o-mini-tts` for optional spoken feedback
 
 ## Project Structure
 
@@ -119,6 +120,8 @@ The API runs on `http://localhost:8787`.
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_REASONING_MODEL=gpt-5.4-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
+OPENAI_TTS_VOICE=sage
 PORT=8787
 WEB_ORIGIN=http://localhost:5173
 VITE_API_BASE_URL=http://localhost:8787
@@ -140,6 +143,9 @@ If the API key is missing, the server still starts, but transcription and orches
 - `POST /api/speech-to-text`
   - Multipart form-data with `audio`
   - Returns `{ transcript }`
+- `POST /api/feedback/speech`
+  - Body: `{ "text": "Opening the page now.", "voice": "sage" }`
+  - Returns `audio/mpeg`
 - `POST /api/parse-intent`
   - Body: `{ "transcript": "..." }`
   - Returns `{ intent }`
@@ -208,6 +214,8 @@ If the API key is missing, the server still starts, but transcription and orches
 - The planner is intentionally independent from execution.
 - Voice and reasoning integrations are isolated in backend services.
 - Shared Zod schemas keep the UI and API contracts aligned.
+- Spoken feedback is optional, off by default, and generated server-side through OpenAI TTS.
+- If TTS fails, the UI continues visually without blocking the workflow.
 
 ## Chrome Extension
 

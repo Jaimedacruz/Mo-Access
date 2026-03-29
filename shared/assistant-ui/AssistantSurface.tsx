@@ -11,12 +11,23 @@ import {
   type SafetyLevel
 } from "../index";
 import {
+  getExtensionCommandResult,
   getExtensionState,
   mapPlanToExtensionCommands,
   orchestrateTranscript,
   queueExtensionCommand,
   transcribeAudio
 } from "./api";
+import {
+  buildErrorFeedbackEvent,
+  buildExecutionFeedbackEvent,
+  buildExecutionResultMessage,
+  buildPlanFeedbackEvent,
+  buildProcessingFeedbackEvent,
+  buildQueueFeedbackEvent,
+  type FeedbackEvent
+} from "./feedback-events";
+import { FeedbackSpeechController } from "./feedback-speech";
 import "./assistant-surface.css";
 
 type ChatMessage = {
@@ -51,6 +62,7 @@ const chatMessageSchema = z
   })
   .strict();
 const storedChatHistorySchema = z.array(chatMessageSchema);
+const voiceFeedbackStorageKey = "mo-access-voice-feedback-enabled";
 
 function createId() {
   if (typeof globalThis.crypto?.randomUUID === "function") {
@@ -64,6 +76,19 @@ function createId() {
   }
 
   return `fallback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function loadStoredBoolean(storageKey: string, fallbackValue: boolean) {
+  if (typeof window === "undefined") {
+    return fallbackValue;
+  }
+
+  const rawValue = window.localStorage.getItem(storageKey);
+  if (rawValue === null) {
+    return fallbackValue;
+  }
+
+  return rawValue === "true";
 }
 
 function buildWelcomeMessage(title: string): ChatMessage {
@@ -134,11 +159,16 @@ export function AssistantSurface({
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [status, setStatus] = useState<AssistantStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [feedbackEvents, setFeedbackEvents] = useState<FeedbackEvent[]>([]);
+  const [voiceFeedbackEnabled, setVoiceFeedbackEnabled] = useState<boolean>(() =>
+    loadStoredBoolean(voiceFeedbackStorageKey, false)
+  );
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const speechControllerRef = useRef<FeedbackSpeechController | null>(null);
   const isBusy = status === "transcribing" || status === "parsing" || status === "planning";
 
   useEffect(() => {
@@ -154,10 +184,25 @@ export function AssistantSurface({
   }, [historyStorageKey, messages]);
 
   useEffect(() => {
+    speechControllerRef.current = new FeedbackSpeechController();
+
     return () => {
+      speechControllerRef.current?.destroy();
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(voiceFeedbackStorageKey, String(voiceFeedbackEnabled));
+    } catch {
+      // Ignore preference persistence failures.
+    }
+
+    if (!voiceFeedbackEnabled) {
+      speechControllerRef.current?.cancel();
+    }
+  }, [voiceFeedbackEnabled]);
 
   function addMessage(message: ChatMessage) {
     setMessages((previous) => [...previous, message]);
@@ -172,6 +217,28 @@ export function AssistantSurface({
     });
   }
 
+  function addFeedbackEvent(event: FeedbackEvent) {
+    setFeedbackEvents((previous) => {
+      const lastEvent = previous[previous.length - 1];
+      if (lastEvent && lastEvent.message === event.message && lastEvent.type === event.type) {
+        return previous;
+      }
+
+      return [...previous.slice(-4), event];
+    });
+
+    if (!voiceFeedbackEnabled || !event.shouldSpeak) {
+      return;
+    }
+
+    void speechControllerRef.current?.speakFeedback(event.message, {
+      priority: event.priority,
+      interrupt: event.priority === "high"
+    }).catch((error) => {
+      console.error("Voice feedback failed.", error);
+    });
+  }
+
   function conversationHistory() {
     return messages.map((message) => ({
       role: message.role,
@@ -180,7 +247,9 @@ export function AssistantSurface({
   }
 
   async function queuePlanExecution(plan: ActionPlan) {
-    const commands = mapPlanToExtensionCommands(plan).filter((command) => {
+    const commands = mapPlanToExtensionCommands(plan, {
+      newTabForNavigation: surface !== "panel"
+    }).filter((command) => {
       const step = plan.steps.find((candidate) => {
         if (candidate.type === "navigate" && command.type === "navigate") {
           return true;
@@ -214,13 +283,74 @@ export function AssistantSurface({
     }
 
     return {
+      commands,
       queuedCount: commands.length,
       extensionConnected: bridgeState.extensionConnected
     };
   }
 
+  async function waitForCommandResult(commandId: string, timeoutMs = 12000) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        return await getExtensionCommandResult(commandId);
+      } catch (error) {
+        if (!(error instanceof Error) || !/No result found/i.test(error.message)) {
+          throw error;
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+
+    throw new Error(`Timed out waiting for extension result ${commandId}.`);
+  }
+
+  async function requestFreshExecutionPageContext() {
+    const commandId = `exec_context_${Date.now()}`;
+    await queueExtensionCommand({
+      id: commandId,
+      type: "get_page_context"
+    });
+
+    return waitForCommandResult(commandId, 12000);
+  }
+
+  async function monitorQueuedExecution(commandIds: string[]) {
+    for (const commandId of commandIds) {
+      try {
+        const result = await waitForCommandResult(commandId);
+        let feedbackResult = result;
+
+        if (result.ok && result.action === "navigate") {
+          try {
+            feedbackResult = await requestFreshExecutionPageContext();
+          } catch (error) {
+            console.error("Follow-up page context request failed.", error);
+          }
+        }
+
+        addFeedbackEvent(buildExecutionFeedbackEvent(feedbackResult));
+
+        const executionMessage = buildExecutionResultMessage(feedbackResult);
+        if (executionMessage) {
+          addMessage({
+            id: createId(),
+            role: "assistant",
+            content: executionMessage.content,
+            tone: executionMessage.tone
+          });
+        }
+      } catch (error) {
+        console.error("Execution feedback polling failed.", error);
+      }
+    }
+  }
+
   async function autoQueuePlanExecution(plan: ActionPlan) {
     const execution = await queuePlanExecution(plan);
+    addFeedbackEvent(buildQueueFeedbackEvent(execution.queuedCount, execution.extensionConnected));
     addMessage({
       id: createId(),
       role: "assistant",
@@ -230,6 +360,10 @@ export function AssistantSurface({
       steps: plan.steps,
       safetyLevel: plan.safetyLevel
     });
+
+    if (execution.extensionConnected) {
+      void monitorQueuedExecution(execution.commands.map((command) => command.id));
+    }
   }
 
   async function sendTypedCommand(command: string) {
@@ -249,6 +383,7 @@ export function AssistantSurface({
     });
     setTypedCommand("");
     setStatus("parsing");
+    addFeedbackEvent(buildProcessingFeedbackEvent("Understanding your request."));
 
     try {
       const result = await orchestrateTranscript(trimmed, {
@@ -256,6 +391,7 @@ export function AssistantSurface({
       });
       setStatus("planning");
       addMessage(buildAssistantReply(result.intent, result.plan, result.assistantMessage));
+      addFeedbackEvent(buildPlanFeedbackEvent(result.plan));
       await autoQueuePlanExecution(result.plan);
       setStatus("ready");
     } catch (caughtError) {
@@ -263,6 +399,7 @@ export function AssistantSurface({
         caughtError instanceof Error ? caughtError.message : "I couldn't process that request.";
       setStatus("error");
       setError(message);
+      addFeedbackEvent(buildErrorFeedbackEvent(message));
       addErrorMessage(message);
     }
   }
@@ -270,6 +407,7 @@ export function AssistantSurface({
   async function sendAudioCommand(file: File) {
     setError(null);
     setStatus("transcribing");
+    addFeedbackEvent(buildProcessingFeedbackEvent("Transcribing your audio."));
 
     try {
       const { transcript } = await transcribeAudio(file);
@@ -280,12 +418,14 @@ export function AssistantSurface({
       });
       setAudioFile(null);
       setStatus("parsing");
+      addFeedbackEvent(buildProcessingFeedbackEvent("Understanding your request."));
 
       const result = await orchestrateTranscript(transcript, {
         history: conversationHistory()
       });
       setStatus("planning");
       addMessage(buildAssistantReply(result.intent, result.plan, result.assistantMessage));
+      addFeedbackEvent(buildPlanFeedbackEvent(result.plan));
       await autoQueuePlanExecution(result.plan);
       setStatus("ready");
     } catch (caughtError) {
@@ -293,6 +433,7 @@ export function AssistantSurface({
         caughtError instanceof Error ? caughtError.message : "I couldn't process that audio clip.";
       setStatus("error");
       setError(message);
+      addFeedbackEvent(buildErrorFeedbackEvent(message));
       addErrorMessage(message);
     }
   }
@@ -374,6 +515,8 @@ export function AssistantSurface({
     }
   }
 
+  const latestFeedback = feedbackEvents[feedbackEvents.length - 1] ?? null;
+
   return (
     <main className={`assistant-surface surface-${surface}`}>
       <header className="assistant-topbar">
@@ -381,12 +524,33 @@ export function AssistantSurface({
           <p className="assistant-eyebrow">{eyebrow}</p>
           <h1>{title}</h1>
         </div>
-        <span className={`assistant-status-pill assistant-status-${status}`}>{statusLabels[status]}</span>
+        <div className="assistant-topbar-actions">
+          <button
+            aria-pressed={voiceFeedbackEnabled}
+            className={`assistant-voice-toggle ${voiceFeedbackEnabled ? "enabled" : ""}`}
+            onClick={() => setVoiceFeedbackEnabled((previous) => !previous)}
+            type="button"
+          >
+            Voice feedback: {voiceFeedbackEnabled ? "On" : "Off"}
+          </button>
+          <span className={`assistant-status-pill assistant-status-${status}`}>{statusLabels[status]}</span>
+        </div>
       </header>
 
       <section className="assistant-subhead">
         <p>{subhead}</p>
       </section>
+
+      {latestFeedback ? (
+        <section
+          aria-live="polite"
+          className={`assistant-feedback-banner assistant-feedback-${latestFeedback.type}`}
+          role="status"
+        >
+          <span className="assistant-feedback-label">Current feedback</span>
+          <p>{latestFeedback.message}</p>
+        </section>
+      ) : null}
 
       {showSamplePrompts ? (
         <section className="assistant-sample-row" aria-label="Sample prompts">

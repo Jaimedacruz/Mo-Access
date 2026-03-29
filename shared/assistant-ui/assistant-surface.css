@@ -64,6 +64,14 @@ body {
   gap: 1rem;
 }
 
+.assistant-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .assistant-eyebrow {
   margin: 0 0 0.45rem;
   text-transform: uppercase;
@@ -87,6 +95,50 @@ body {
 
 .assistant-subhead p {
   margin: 0;
+}
+
+.assistant-feedback-banner,
+.assistant-voice-toggle {
+  border: 1px solid rgba(21, 33, 40, 0.08);
+  border-radius: 1.15rem;
+}
+
+.assistant-feedback-banner {
+  background: rgba(255, 252, 246, 0.88);
+  box-shadow: 0 10px 28px rgba(21, 33, 40, 0.07);
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.assistant-feedback-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #607078;
+}
+
+.assistant-feedback-banner p {
+  margin: 0;
+}
+
+.assistant-feedback-progress,
+.assistant-feedback-info {
+  background: rgba(255, 249, 239, 0.9);
+}
+
+.assistant-feedback-success {
+  background: rgba(226, 244, 236, 0.94);
+}
+
+.assistant-feedback-warning,
+.assistant-feedback-awaiting_confirmation {
+  background: rgba(255, 240, 218, 0.96);
+}
+
+.assistant-feedback-error {
+  background: rgba(255, 233, 230, 0.96);
 }
 
 .assistant-sample-row {
@@ -264,11 +316,17 @@ body {
 }
 
 .assistant-tool-button,
-.assistant-text-button {
+.assistant-text-button,
+.assistant-voice-toggle {
   background: rgba(255, 255, 255, 0.9);
   color: #284048;
   padding: 0.72rem 1rem;
   border: 1px solid rgba(21, 33, 40, 0.08);
+}
+
+.assistant-voice-toggle.enabled {
+  background: #e3f5ee;
+  color: #145449;
 }
 
 .assistant-tool-button.recording {
@@ -382,6 +440,10 @@ body {
   .assistant-composer-actions {
     align-items: start;
     flex-direction: column;
+  }
+
+  .assistant-topbar-actions {
+    justify-content: flex-start;
   }
 
   .assistant-message-bubble {

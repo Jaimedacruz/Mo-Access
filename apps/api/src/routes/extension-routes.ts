@@ -12,6 +12,7 @@ import {
   getExtensionCommand,
   getExtensionBridgeState,
   getNextExtensionCommand,
+  getExtensionResult,
   recordExtensionHeartbeat,
   recordExtensionPageContext,
   recordExtensionResult
@@ -94,4 +95,17 @@ extensionRouter.get("/state", (_request, response) => {
   response.json(
     extensionBridgeStateSchema.parse(getExtensionBridgeState())
   );
+});
+
+extensionRouter.get("/result/:commandId", (request, response) => {
+  const result = getExtensionResult(request.params.commandId);
+
+  if (!result) {
+    response.status(404).json({
+      error: `No result found for command ${request.params.commandId}.`
+    });
+    return;
+  }
+
+  response.json(result);
 });
