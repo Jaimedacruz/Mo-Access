@@ -153,6 +153,27 @@ export const extensionCommandSchema = z.discriminatedUnion("type", [
   z
     .object({
       id: z.string().min(1),
+      type: z.literal("search_whatsapp_contact"),
+      name: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("open_whatsapp_chat"),
+      name: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
+      type: z.literal("send_whatsapp_message"),
+      message: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1),
       type: z.literal("play_video")
     })
     .strict(),

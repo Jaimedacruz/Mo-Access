@@ -13,6 +13,7 @@ import {
   handleCalendarCommand,
   handleDocsCommand,
   handleDriveCommand,
+  handleWhatsAppCommand,
   handleYouTubeCommand
 } from "./dom/google-app-controllers";
 import { mountAssistantOverlay } from "./overlay";
@@ -262,6 +263,9 @@ async function runCommand(command: ExtensionCommand): Promise<ExtensionCommandRe
     case "press_key":
       return pressKey(command);
     case "open_search_result":
+    case "search_whatsapp_contact":
+    case "open_whatsapp_chat":
+    case "send_whatsapp_message":
     case "play_video":
     case "pause_video":
     case "mute_video":
@@ -269,6 +273,13 @@ async function runCommand(command: ExtensionCommand): Promise<ExtensionCommandRe
     case "seek_forward":
     case "seek_backward":
     case "fullscreen_video":
+      if (
+        command.type === "search_whatsapp_contact" ||
+        command.type === "open_whatsapp_chat" ||
+        command.type === "send_whatsapp_message"
+      ) {
+        return handleWhatsAppCommand(command);
+      }
       return handleYouTubeCommand(command);
     case "edit_event":
     case "delete_event":

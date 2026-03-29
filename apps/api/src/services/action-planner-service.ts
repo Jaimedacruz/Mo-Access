@@ -86,6 +86,85 @@ function maybeBuildGoogleAppControllerSteps(intent: Intent) {
           requiresConfirmation: false
         }
       ] satisfies ActionStep[];
+    case "search_whatsapp_contact":
+      return [
+        ...(!intent.currentPage
+          ? [
+              {
+                type: "navigate",
+                description: "Open WhatsApp Web.",
+                target: "https://web.whatsapp.com/",
+                requiresConfirmation: false
+              } satisfies ActionStep
+            ]
+          : []),
+        {
+          type: "search_whatsapp_contact",
+          description: `Search WhatsApp for ${specialValue(intent, "contactName") ?? "the requested contact"}.`,
+          contactName: specialValue(intent, "contactName"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "open_whatsapp_chat":
+      return [
+        ...(!intent.currentPage
+          ? [
+              {
+                type: "navigate",
+                description: "Open WhatsApp Web.",
+                target: "https://web.whatsapp.com/",
+                requiresConfirmation: false
+              } satisfies ActionStep
+            ]
+          : []),
+        {
+          type: "search_whatsapp_contact",
+          description: `Search WhatsApp for ${specialValue(intent, "contactName") ?? "the requested contact"}.`,
+          contactName: specialValue(intent, "contactName"),
+          requiresConfirmation: false
+        },
+        {
+          type: "open_whatsapp_chat",
+          description: `Open the WhatsApp chat with ${specialValue(intent, "contactName") ?? "the requested contact"}.`,
+          contactName: specialValue(intent, "contactName"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
+    case "send_whatsapp_message":
+      return [
+        ...(!intent.currentPage
+          ? [
+              {
+                type: "navigate",
+                description: "Open WhatsApp Web.",
+                target: "https://web.whatsapp.com/",
+                requiresConfirmation: false
+              } satisfies ActionStep
+            ]
+          : []),
+        ...(specialValue(intent, "contactName")
+          ? [
+              {
+                type: "search_whatsapp_contact",
+                description: `Search WhatsApp for ${specialValue(intent, "contactName")}.`,
+                contactName: specialValue(intent, "contactName"),
+                requiresConfirmation: false
+              } satisfies ActionStep,
+              {
+                type: "open_whatsapp_chat",
+                description: `Open the WhatsApp chat with ${specialValue(intent, "contactName")}.`,
+                contactName: specialValue(intent, "contactName"),
+                requiresConfirmation: false
+              } satisfies ActionStep
+            ]
+          : []),
+        {
+          type: "send_whatsapp_message",
+          description: "Send the WhatsApp message in the current chat.",
+          message: specialValue(intent, "message"),
+          requiresConfirmation: false
+        }
+      ] satisfies ActionStep[];
     case "open_search_result":
       return [
         {

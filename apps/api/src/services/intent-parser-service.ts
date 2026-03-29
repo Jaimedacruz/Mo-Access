@@ -194,8 +194,83 @@ function specialIntentFields(command: string, values: Record<string, string>) {
   };
 }
 
-function maybeParseGoogleControllerIntent(transcript: string): Intent | null {
+function currentPageUrl(context?: ParseIntentContext) {
+  return context?.currentPageContext?.url ?? "";
+}
+
+function isCurrentPageApp(context: ParseIntentContext | undefined, hostPattern: RegExp) {
+  return hostPattern.test(currentPageUrl(context));
+}
+
+function maybeParseGoogleControllerIntent(transcript: string, context?: ParseIntentContext): Intent | null {
   const trimmed = normalizeTranscript(transcript);
+  const onWhatsApp = isCurrentPageApp(context, /(^|:\/\/|\.)(web\.)?whatsapp\.com/i);
+
+  const searchWhatsAppContact = trimmed.match(
+    /^(?:search(?:\s+for)?|find|look\s+for|open)\s+(?:this\s+contact:\s*|contact\s+)?(.+?)\s+on\s+whatsapp(?:\s+web)?$/i
+  );
+  if (searchWhatsAppContact) {
+    return intentSchema.parse({
+      type: "open_page",
+      summary: `Search WhatsApp for the contact ${searchWhatsAppContact[1].trim()}.`,
+      page: "whatsapp",
+      currentPage: onWhatsApp,
+      target: "whatsapp",
+      actionTarget: null,
+      query: null,
+      fields: specialIntentFields("search_whatsapp_contact", { contactName: searchWhatsAppContact[1].trim() }),
+      message: null,
+      requiresConfirmation: false,
+      safetyLevel: "low",
+      confirmationMessage: null,
+      notes: ["Use the WhatsApp Web controller to search contacts instead of the public web."]
+    });
+  }
+
+  const openWhatsAppChat = trimmed.match(
+    /^(?:open|start)\s+(?:a\s+)?(?:whatsapp\s+)?chat with\s+(.+?)(?:\s+on\s+whatsapp(?:\s+web)?)?$/i
+  );
+  if (openWhatsAppChat) {
+    return intentSchema.parse({
+      type: "open_page",
+      summary: `Open the WhatsApp chat with ${openWhatsAppChat[1].trim()}.`,
+      page: "whatsapp",
+      currentPage: onWhatsApp,
+      target: "whatsapp",
+      actionTarget: null,
+      query: null,
+      fields: specialIntentFields("open_whatsapp_chat", { contactName: openWhatsAppChat[1].trim() }),
+      message: null,
+      requiresConfirmation: false,
+      safetyLevel: "low",
+      confirmationMessage: null,
+      notes: ["Use the WhatsApp Web controller to open the requested chat."]
+    });
+  }
+
+  const sendWhatsAppMessage = trimmed.match(
+    /^(?:send|write|message)\s+(?:a\s+)?(?:whatsapp\s+)?message\s+to\s+(.+?)\s+(?:saying|that says|with message)\s+["']?(.+?)["']?$/i
+  ) ?? trimmed.match(/^(?:message)\s+(.+?)\s+on\s+whatsapp(?:\s+web)?\s+(?:saying|that says|with message)\s+["']?(.+?)["']?$/i);
+  if (sendWhatsAppMessage) {
+    return intentSchema.parse({
+      type: "compose_message",
+      summary: `Send a WhatsApp message to ${sendWhatsAppMessage[1].trim()}.`,
+      page: "whatsapp",
+      currentPage: onWhatsApp,
+      target: "whatsapp",
+      actionTarget: null,
+      query: null,
+      fields: specialIntentFields("send_whatsapp_message", {
+        contactName: sendWhatsAppMessage[1].trim(),
+        message: sendWhatsAppMessage[2].trim()
+      }),
+      message: null,
+      requiresConfirmation: false,
+      safetyLevel: "medium",
+      confirmationMessage: null,
+      notes: ["Use the WhatsApp Web controller to open the contact and send the message."]
+    });
+  }
 
   const youtubeSearch = trimmed.match(/^(?:search|find|look up)\s+(.+?)\s+on\s+youtube$/i);
   if (youtubeSearch) {
@@ -712,7 +787,7 @@ function maybeParseDeterministically(transcript: string, context?: ParseIntentCo
   const wantsAnswerBack = /\b(return|tell|give|show)\b.*\b(to me|back)\b|\bwhat is\b|\bwho is\b|\bhow old\b|\bhow much\b|\bwhen\b|\bwhere\b/i.test(
     trimmed
   );
-  const controllerIntent = maybeParseGoogleControllerIntent(trimmed);
+  const controllerIntent = maybeParseGoogleControllerIntent(trimmed, context);
   if (controllerIntent) {
     return controllerIntent;
   }

@@ -428,6 +428,72 @@ function buildDeterministicDecision(step: ActionStep, stepIndex: number, pageCon
         clarificationNeeded: false,
         clarificationMessage: null
       };
+    case "search_whatsapp_contact":
+      if (!step.contactName) {
+        return {
+          command: null,
+          reason: "The WhatsApp contact search step has no contact name.",
+          confidence: 0,
+          clarificationNeeded: true,
+          clarificationMessage: "I need the contact name before I can search WhatsApp."
+        };
+      }
+
+      return {
+        command: {
+          id: commandId,
+          type: "search_whatsapp_contact",
+          name: step.contactName
+        },
+        reason: "This is a deterministic WhatsApp contact search action.",
+        confidence: 0.96,
+        clarificationNeeded: false,
+        clarificationMessage: null
+      };
+    case "open_whatsapp_chat":
+      if (!step.contactName) {
+        return {
+          command: null,
+          reason: "The WhatsApp open chat step has no contact name.",
+          confidence: 0,
+          clarificationNeeded: true,
+          clarificationMessage: "I need the contact name before I can open the WhatsApp chat."
+        };
+      }
+
+      return {
+        command: {
+          id: commandId,
+          type: "open_whatsapp_chat",
+          name: step.contactName
+        },
+        reason: "This is a deterministic WhatsApp chat-opening action.",
+        confidence: 0.96,
+        clarificationNeeded: false,
+        clarificationMessage: null
+      };
+    case "send_whatsapp_message":
+      if (!step.message) {
+        return {
+          command: null,
+          reason: "The WhatsApp send message step has no message body.",
+          confidence: 0,
+          clarificationNeeded: true,
+          clarificationMessage: "I need the WhatsApp message text before I can continue."
+        };
+      }
+
+      return {
+        command: {
+          id: commandId,
+          type: "send_whatsapp_message",
+          message: step.message
+        },
+        reason: "This is a deterministic WhatsApp message send action.",
+        confidence: 0.96,
+        clarificationNeeded: false,
+        clarificationMessage: null
+      };
     case "play_video":
     case "pause_video":
     case "mute_video":
