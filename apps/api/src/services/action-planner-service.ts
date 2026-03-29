@@ -159,12 +159,16 @@ export function buildActionPlan(intent: Intent): ActionPlan {
           requiresConfirmation: false
         });
 
-        steps.push({
-          type: "click",
-          description: "Click the Send button in Gmail.",
-          target: "send button",
-          requiresConfirmation: false
-        });
+        if (intent.message?.subject || intent.message?.body) {
+          steps.push({
+            type: "click",
+            description: "Click the Send button in Gmail.",
+            target: "send button",
+            requiresConfirmation: false
+          });
+        } else {
+          notes.push("The email content is missing, so the plan opens Gmail but does not send a blank message.");
+        }
 
         notes.push("This flow relies on an active Gmail session in the browser.");
         break;

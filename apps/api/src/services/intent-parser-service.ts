@@ -166,6 +166,61 @@ function isFreshStandaloneRequest(transcript: string) {
   );
 }
 
+function cleanExtractedMessagePart(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const cleaned = value
+    .trim()
+    .replace(/^(that\s+says?|saying|with\s+body|body(?::|\s+is)?|message(?::|\s+is)?|saying\s+that)\s+/i, "")
+    .replace(/^["']|["']$/g, "")
+    .trim()
+    .replace(/[.?!]+$/, "")
+    .trim();
+
+  return cleaned || null;
+}
+
+function extractEmailMessageDetails(transcript: string) {
+  const subjectPatterns = [
+    /\bsubject\s*:\s*["']?(.+?)["']?(?=(?:\s+\b(?:body|message)\b\s*:|\s+\b(?:and\s+)?(?:body|message)\b\s+|$))/i,
+    /\bwith subject\s+["']?(.+?)["']?(?=(?:\s+\b(?:body|message)\b\s*:|\s+\b(?:and\s+)?(?:body|message)\b\s+|$))/i
+  ];
+
+  const bodyPatterns = [
+    /\bbody\s*:\s*["']?(.+?)["']?$/i,
+    /\bmessage\s*:\s*["']?(.+?)["']?$/i,
+    /\band body\s+["']?(.+?)["']?$/i,
+    /\band message\s+["']?(.+?)["']?$/i,
+    /\b(?:email|mail|message)\s+(?:saying|that says)\s+["']?(.+?)["']?$/i,
+    /\bsay(?:ing)?\s+["']?(.+?)["']?$/i,
+    /\bwith message\s+["']?(.+?)["']?$/i,
+    /\bwith body\s+["']?(.+?)["']?$/i
+  ];
+
+  let subject: string | null = null;
+  let body: string | null = null;
+
+  for (const pattern of subjectPatterns) {
+    const match = transcript.match(pattern);
+    if (match) {
+      subject = cleanExtractedMessagePart(match[1]);
+      break;
+    }
+  }
+
+  for (const pattern of bodyPatterns) {
+    const match = transcript.match(pattern);
+    if (match) {
+      body = cleanExtractedMessagePart(match[1]);
+      break;
+    }
+  }
+
+  return { subject, body };
+}
+
 function maybeParseDeterministically(transcript: string, context?: ParseIntentContext): Intent | null {
   const trimmed = normalizeTranscript(transcript);
   const emailMatch = trimmed.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
@@ -266,13 +321,17 @@ function maybeParseDeterministically(transcript: string, context?: ParseIntentCo
     const wantsGreetingOnly = /(just\s+greet|greet\s+the\s+person|say\s+hi|say\s+hello|just\s+say\s+hi|just\s+say\s+hello)/i.test(
       trimmed
     );
-    const body = wantsGreetingOnly ? "Hello," : null;
+    const extractedDetails = extractEmailMessageDetails(trimmed);
+    const subject = extractedDetails.subject;
+    const body = wantsGreetingOnly ? extractedDetails.body ?? "Hello," : extractedDetails.body;
+    const wantsSend = /\b(send|send it|don'?t forget to send|and send|then send)\b/i.test(trimmed);
 
     return intentSchema.parse({
       type: "compose_message",
-      summary: body
-        ? `Open Gmail and send a greeting email to ${recipient}.`
-        : `Open Gmail and compose an email to ${recipient}.`,
+      summary:
+        subject || body
+          ? `Open Gmail and ${wantsSend ? "send" : "compose"} an email to ${recipient}${subject ? ` with subject '${subject}'` : ""}.`
+          : `Open Gmail and compose an email to ${recipient}.`,
       page: "gmail",
       currentPage: false,
       target: "gmail",
@@ -281,15 +340,20 @@ function maybeParseDeterministically(transcript: string, context?: ParseIntentCo
       fields: {},
       message: {
         recipient,
-        subject: null,
+        subject,
         body
       },
       requiresConfirmation: false,
-      safetyLevel: body ? "medium" : "high",
+      safetyLevel: body || subject ? "medium" : "high",
       confirmationMessage: null,
-      notes: body
-        ? ["The request explicitly asks for a greeting email and to send it."]
-        : ["The recipient is clear, but the message content was not fully specified."]
+      notes:
+        body || subject
+          ? [
+              wantsSend
+                ? "The request includes email content and explicitly asks to send it."
+                : "The request includes email content for drafting."
+            ]
+          : ["The recipient is clear, but the message content was not fully specified."]
     });
   }
 
