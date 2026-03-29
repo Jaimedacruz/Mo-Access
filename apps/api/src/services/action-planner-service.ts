@@ -26,6 +26,32 @@ function resolveNavigationTarget(intent: Intent) {
   return slugifyTarget(candidate);
 }
 
+function buildGmailComposeUrl(intent: Intent) {
+  const recipient = intent.message?.recipient?.trim();
+  const subject = intent.message?.subject?.trim() ?? "";
+  const body = intent.message?.body?.trim() ?? "";
+
+  if (!recipient) {
+    return null;
+  }
+
+  const url = new URL("https://mail.google.com/mail/");
+  url.searchParams.set("view", "cm");
+  url.searchParams.set("fs", "1");
+  url.searchParams.set("tf", "1");
+  url.searchParams.set("to", recipient);
+
+  if (subject) {
+    url.searchParams.set("su", subject);
+  }
+
+  if (body) {
+    url.searchParams.set("body", body);
+  }
+
+  return url.toString();
+}
+
 export function buildActionPlan(intent: Intent): ActionPlan {
   const steps: ActionStep[] = [];
   const notes = [...intent.notes];
@@ -120,6 +146,30 @@ export function buildActionPlan(intent: Intent): ActionPlan {
       break;
     }
     case "compose_message": {
+      const gmailComposeUrl =
+        intent.target?.toLowerCase().includes("gmail") || intent.page?.toLowerCase().includes("gmail")
+          ? buildGmailComposeUrl(intent)
+          : null;
+
+      if (gmailComposeUrl) {
+        steps.push({
+          type: "navigate",
+          description: "Open Gmail with the drafted message prefilled.",
+          target: gmailComposeUrl,
+          requiresConfirmation: false
+        });
+
+        steps.push({
+          type: "click",
+          description: "Click the Send button in Gmail.",
+          target: "send button",
+          requiresConfirmation: false
+        });
+
+        notes.push("This flow relies on an active Gmail session in the browser.");
+        break;
+      }
+
       if (navigationTarget) {
         steps.push({
           type: "navigate",
@@ -129,14 +179,48 @@ export function buildActionPlan(intent: Intent): ActionPlan {
         });
       }
 
-      steps.push({
-        type: "compose_message",
-        description: "Draft the requested message.",
-        recipient: intent.message?.recipient ?? undefined,
-        subject: intent.message?.subject ?? undefined,
-        body: intent.message?.body ?? undefined,
-        requiresConfirmation: false
-      });
+      if (intent.message?.recipient) {
+        steps.push({
+          type: "type",
+          description: "Type the recipient email address into the To field.",
+          fieldHint: "to",
+          value: intent.message.recipient,
+          requiresConfirmation: false
+        });
+      } else {
+        notes.push("The recipient email address is missing.");
+      }
+
+      if (intent.message?.subject) {
+        steps.push({
+          type: "type",
+          description: "Type the email subject.",
+          fieldHint: "subject",
+          value: intent.message.subject,
+          requiresConfirmation: false
+        });
+      }
+
+      if (intent.message?.body) {
+        steps.push({
+          type: "type",
+          description: "Type the email body into the message field.",
+          fieldHint: "message body",
+          value: intent.message.body,
+          requiresConfirmation: false
+        });
+      } else {
+        notes.push("The message body is missing.");
+      }
+
+      if (intent.message?.recipient && intent.message?.body) {
+        steps.push({
+          type: "click",
+          description: "Click the Send button.",
+          target: "send button",
+          requiresConfirmation: false
+        });
+      }
       break;
     }
     case "search_web": {

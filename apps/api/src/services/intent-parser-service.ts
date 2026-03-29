@@ -134,6 +134,7 @@ type ParseIntentContext = {
 
 function maybeParseDeterministically(transcript: string): Intent | null {
   const trimmed = transcript.trim();
+  const emailMatch = trimmed.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
 
   const typeAndClickMatch = trimmed.match(
     /^type\s+["']?(.+?)["']?\s+(?:on|into|in)\s+(.+?)(?:\s+and\s+(?:then\s+)?(?:press|click)\s+(.+?))$/i
@@ -158,6 +159,38 @@ function maybeParseDeterministically(transcript: string): Intent | null {
       safetyLevel: "medium",
       confirmationMessage: null,
       notes: []
+    });
+  }
+
+  if (emailMatch && /(gmail|email|e-mail|mail)\b/i.test(trimmed)) {
+    const recipient = emailMatch[0];
+    const wantsGreetingOnly = /(just\s+greet|greet\s+the\s+person|say\s+hi|say\s+hello|just\s+say\s+hi|just\s+say\s+hello)/i.test(
+      trimmed
+    );
+    const body = wantsGreetingOnly ? "Hello," : null;
+
+    return intentSchema.parse({
+      type: "compose_message",
+      summary: body
+        ? `Open Gmail and send a greeting email to ${recipient}.`
+        : `Open Gmail and compose an email to ${recipient}.`,
+      page: "gmail",
+      currentPage: false,
+      target: "gmail",
+      actionTarget: "send button",
+      query: null,
+      fields: {},
+      message: {
+        recipient,
+        subject: null,
+        body
+      },
+      requiresConfirmation: false,
+      safetyLevel: body ? "medium" : "high",
+      confirmationMessage: null,
+      notes: body
+        ? ["The request explicitly asks for a greeting email and to send it."]
+        : ["The recipient is clear, but the message content was not fully specified."]
     });
   }
 

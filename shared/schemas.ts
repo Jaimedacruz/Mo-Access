@@ -32,7 +32,9 @@ export const intentSchema = z
     type: intentTypeSchema,
     summary: z.string().min(1),
     page: z.string().nullable(),
+    currentPage: z.boolean().default(false),
     target: z.string().nullable(),
+    actionTarget: z.string().nullable().default(null),
     query: z.string().nullable(),
     fields: z.record(z.string(), z.string()).default({}),
     message: messageDetailsSchema.nullable(),
@@ -82,7 +84,25 @@ export const actionPlanSchema = z
 
 export const parseIntentRequestSchema = z
   .object({
-    transcript: z.string().min(1)
+    transcript: z.string().min(1),
+    history: z
+      .array(
+        z
+          .object({
+            role: z.enum(["user", "assistant"]),
+            content: z.string().min(1)
+          })
+          .strict()
+      )
+      .default([]),
+    pendingConfirmation: z
+      .object({
+        summary: z.string().min(1),
+        confirmationMessage: z.string().nullable(),
+        steps: z.array(z.string()).default([])
+      })
+      .nullable()
+      .default(null)
   })
   .strict();
 
@@ -117,7 +137,8 @@ export const orchestratorResponseSchema = z
     transcript: z.string().min(1),
     intent: intentSchema,
     plan: actionPlanSchema,
-    statusMessages: z.array(z.string()).default([])
+    statusMessages: z.array(z.string()).default([]),
+    assistantMessage: z.string().nullable().default(null)
   })
   .strict();
 

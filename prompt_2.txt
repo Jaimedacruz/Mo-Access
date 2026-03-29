@@ -1,0 +1,312 @@
+You are implementing the Chrome extension for the first working iteration of our accessibility-focused voice assistant project.
+
+Context:
+- The first iteration already exists.
+- It excludes the browser extension, but it already produces structured commands that are intended to be executed by a future extension.
+- We are now building that extension.
+- Use OpenAI's API only for LLM and voice-related tasks in the wider project, but for this extension itself, keep it deterministic and execution-focused. The extension should NOT call the OpenAI API directly.
+- The extension should only receive ready-to-execute commands from the existing app/orchestrator.
+
+Goal:
+Build a Chrome extension that can receive structured commands from the existing local app, execute safe browser actions on the active tab, and return structured results back to the app.
+
+High-level product intent:
+This project is an accessibility-focused assistive system for users with motor impairments, low vision, and cognitive overload. The extension is the execution layer only. It should feel reliable, predictable, and simple. It should not perform reasoning. It should only interpret structured commands and execute them safely.
+
+What to build:
+Implement a Chrome extension (Manifest V3) that supports the following first-iteration capabilities:
+
+1. Ping / health check
+- The app should be able to confirm that the extension is installed and responsive.
+- Return extension version, active tab URL if available, and basic readiness status.
+
+2. Page context extraction
+- Extract visible text from the current page.
+- Extract page title.
+- Extract current URL.
+- Extract interactive elements summary, including buttons, links, inputs, textareas, selects.
+- For interactive elements, include lightweight metadata such as:
+  - type
+  - text/label
+  - name
+  - id
+  - placeholder
+  - aria-label
+  - disabled state
+  - whether element appears visible
+Do not return massive raw DOM dumps. Keep it compact and structured.
+
+3. Open / navigate
+- Navigate the active tab to a provided URL.
+- Also support opening a URL in a new tab if explicitly requested by the command.
+- Validate URLs conservatively.
+
+4. Click action
+- Accept a structured click command with one or more selector hints.
+- Attempt to find the best matching clickable element.
+- Click only if confidence is reasonable.
+- Return what was matched.
+- If no suitable element is found, return candidate matches instead of failing silently.
+
+5. Type into fields
+- Accept a structured type/fill command with field hints and values.
+- Find the most likely matching input / textarea / contenteditable target.
+- Simulate user-friendly input events properly.
+- Return which field was matched and filled.
+- If ambiguous, return candidates.
+
+6. Read page command support
+- Support extraction for “read page” style flows by returning ordered visible text blocks.
+- Do not do speech synthesis inside the extension yet.
+- The app/backend can decide how to use the text.
+
+7. Highlight target elements
+- When an element is clicked, typed into, or selected as a candidate, visibly highlight it briefly.
+- Use an accessible high-contrast temporary outline.
+
+8. Structured command execution
+- The extension should accept commands that are already planned by the orchestrator.
+- It should execute one command at a time.
+- It should return structured results in a stable schema.
+
+Important architectural rule:
+The extension must be dumb and reliable.
+- No LLM calls.
+- No OpenAI API calls.
+- No hidden planning.
+- No guessing beyond lightweight element ranking logic.
+- No silent dangerous actions.
+
+Scope constraints for this first extension iteration:
+- Chrome only.
+- Local development only.
+- Do not support arbitrary desktop control.
+- Do not support file system access.
+- Do not support sending messages or submitting forms automatically unless the command explicitly says so and confidence is high.
+- For now, do not auto-submit forms by default.
+- Prefer filling and highlighting over final submission.
+
+Expected integration model:
+The existing local app/orchestrator should be able to communicate with the extension. Implement one practical and clean method for local development.
+Preferred approach:
+- A content script + background service worker architecture.
+- Communicate with the local app through one of these approaches, choosing the cleanest practical option:
+  1. Extension popup or sidepanel that can manually connect to localhost API
+  2. Background service worker polling or requesting localhost
+  3. Chrome native messaging is NOT required
+Choose the simplest reliable localhost integration for a hackathon MVP.
+
+Recommended direction:
+Use the background service worker to communicate with the local orchestrator running on localhost via fetch, and use chrome.tabs/chrome.scripting messaging to communicate with the active tab content script.
+Also include a small popup UI for debugging and demo clarity.
+
+What the extension should include:
+1. manifest.json
+2. background/service worker
+3. content script
+4. popup UI
+5. shared command/result types if needed
+6. minimal styling for popup
+7. clear README section for loading the unpacked extension in Chrome
+
+Popup UI requirements:
+- Very simple.
+- Show connection status.
+- Show current tab URL.
+- Show last received command.
+- Show last execution result.
+- Include buttons for:
+  - ping orchestrator
+  - get page context
+  - run a local test click command
+  - run a local test fill command
+- This popup is mainly for development/debugging/demo visibility.
+
+Command schema expectations:
+Design the extension around stable structured commands.
+Support commands like these, or a very similar schema:
+
+{
+  "id": "cmd_123",
+  "type": "get_page_context"
+}
+
+{
+  "id": "cmd_124",
+  "type": "navigate",
+  "url": "https://example.com",
+  "newTab": false
+}
+
+{
+  "id": "cmd_125",
+  "type": "click",
+  "target": {
+    "text": "Contact Us",
+    "role": "button",
+    "selector": null
+  }
+}
+
+{
+  "id": "cmd_126",
+  "type": "fill_field",
+  "target": {
+    "fieldHint": "email"
+  },
+  "value": "jaime@example.com"
+}
+
+{
+  "id": "cmd_127",
+  "type": "fill_form",
+  "fields": [
+    { "fieldHint": "name", "value": "Jaime Da Cruz" },
+    { "fieldHint": "email", "value": "jaime@example.com" }
+  ]
+}
+
+Result schema expectations:
+Return structured results like:
+
+{
+  "commandId": "cmd_126",
+  "ok": true,
+  "action": "fill_field",
+  "matched": {
+    "tag": "input",
+    "name": "email",
+    "id": "email",
+    "label": "Email Address"
+  },
+  "message": "Filled email field successfully"
+}
+
+And for ambiguous cases:
+
+{
+  "commandId": "cmd_125",
+  "ok": false,
+  "action": "click",
+  "message": "No high-confidence match found",
+  "candidates": [
+    { "text": "Contact", "role": "link" },
+    { "text": "Contact Us", "role": "button" }
+  ]
+}
+
+Element matching logic:
+Implement lightweight ranking heuristics. Prefer deterministic ranking over complex magic.
+For inputs:
+- exact name match
+- exact id match
+- exact aria-label match
+- exact associated label text match
+- placeholder contains field hint
+- partial matches after normalization
+
+For clickable elements:
+- exact visible text match
+- aria-label match
+- title match
+- role match if available
+- selector match if provided
+- partial normalized text match
+
+Normalize comparisons:
+- lowercase
+- trim whitespace
+- collapse spaces
+- ignore punctuation where reasonable
+
+Accessibility requirements:
+- High contrast highlight outlines
+- Avoid sudden destructive actions
+- Clear result messages
+- Predictable behavior
+- Make it easy for the rest of the system to confirm actions before submission
+
+Implementation expectations:
+- Use TypeScript if the existing project already uses TypeScript. Prefer consistency with the first iteration.
+- Use a simple build setup such as Vite or the project’s existing preferred tooling if appropriate.
+- Keep the extension code organized and readable.
+- Add comments where the execution protocol matters.
+- Include robust error handling.
+- Use explicit permission declarations only as needed.
+- Keep permissions minimal.
+
+Likely Chrome permissions to consider:
+- activeTab
+- scripting
+- tabs
+- storage
+Host permissions should be minimal but practical for local development and active page access.
+If localhost communication needs host permissions, configure them properly.
+
+Development assumptions:
+- The orchestrator is already running locally.
+- The orchestrator can expose endpoints such as:
+  - GET /health
+  - POST /extension/page-context
+  - POST /extension/execute
+You may adapt endpoint assumptions if needed, but keep them simple and well documented.
+
+What I want from you in the code output:
+1. Implement the full extension.
+2. Add a small integration layer for localhost orchestrator communication.
+3. Add clear types for commands/results.
+4. Add a popup for debug/demo.
+5. Add README instructions for:
+   - install dependencies
+   - build extension
+   - load unpacked extension
+   - connect to local app
+   - test commands
+6. Keep the implementation realistic for a hackathon MVP.
+7. Do not over-engineer.
+
+Suggested internal module structure:
+- src/background/
+  - index.ts
+  - orchestratorClient.ts
+  - commandRouter.ts
+- src/content/
+  - index.ts
+  - dom/extractPageContext.ts
+  - dom/findClickable.ts
+  - dom/findField.ts
+  - dom/highlight.ts
+  - dom/actions.ts
+- src/popup/
+  - Popup.tsx or equivalent
+- src/shared/
+  - types.ts
+  - normalize.ts
+  - scoring.ts
+
+Behavioral requirements:
+- Every command should return a result.
+- Never fail silently.
+- If something cannot be done, explain why in the result.
+- If ambiguity exists, return candidates.
+- Log meaningful messages for local debugging.
+
+Out of scope for this iteration:
+- Auto-running background browsing sequences on arbitrary sites
+- Authentication handling for external sites
+- Full workflow planning inside the extension
+- Advanced autonomous behavior
+- Speech synthesis inside extension
+- Native messaging
+- Cross-browser support
+
+Definition of done:
+- I can build the extension locally.
+- I can load it into Chrome as an unpacked extension.
+- The popup opens and shows status.
+- The extension can fetch page context from the active tab.
+- The extension can execute click and fill commands on a local demo page.
+- The extension returns structured results.
+- The code is clean enough to demo and iterate on.
+
+Please implement this directly in the repository, following the existing project structure where sensible. Be careful not to break the first iteration. Prefer additive changes. If some assumptions about the current repo structure are needed, inspect the repo first and adapt intelligently rather than forcing a brand-new unrelated structure.
