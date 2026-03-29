@@ -140,4 +140,6 @@ chrome.runtime.onMessage.addListener((message: ContentAction, _sender, sendRespo
   return true;
 });
 
-void mountAssistantOverlay();
+void mountAssistantOverlay().catch(() => {
+  // Ignore stale content-script startup failures after extension reloads.
+});

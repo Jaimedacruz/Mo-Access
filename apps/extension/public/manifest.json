@@ -5,9 +5,6 @@
   "version": "0.1.0",
   "permissions": ["activeTab", "scripting", "tabs", "storage", "alarms"],
   "host_permissions": ["http://localhost:8787/*", "<all_urls>"],
-  "chrome_url_overrides": {
-    "newtab": "newtab.html"
-  },
   "background": {
     "service_worker": "assets/background.js"
   },

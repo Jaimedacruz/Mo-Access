@@ -9,12 +9,19 @@ import {
 } from "../../../../shared/index";
 import {
   enqueueExtensionCommand,
+  getExtensionCommand,
   getExtensionBridgeState,
   getNextExtensionCommand,
   recordExtensionHeartbeat,
   recordExtensionPageContext,
   recordExtensionResult
 } from "../services/extension-bridge-service";
+import {
+  recordSessionCommand,
+  recordSessionHeartbeat,
+  recordSessionPageContext,
+  recordSessionResult
+} from "../services/session-state-service";
 
 export const extensionRouter = express.Router();
 
@@ -31,6 +38,7 @@ extensionRouter.get("/next-command", (_request, response) => {
 extensionRouter.post("/execute", (request, response, next) => {
   try {
     const { command } = extensionExecuteRequestSchema.parse(request.body);
+    recordSessionCommand(command);
 
     response.json(
       extensionExecuteResponseSchema.parse(enqueueExtensionCommand(command))
@@ -44,6 +52,7 @@ extensionRouter.post("/heartbeat", (request, response, next) => {
   try {
     const heartbeat = extensionHeartbeatSchema.parse(request.body);
     recordExtensionHeartbeat(heartbeat);
+    recordSessionHeartbeat(heartbeat);
 
     response.json({
       ok: true
@@ -57,6 +66,7 @@ extensionRouter.post("/result", (request, response, next) => {
   try {
     const result = extensionCommandResultSchema.parse(request.body);
     recordExtensionResult(result);
+    recordSessionResult(result, getExtensionCommand(result.commandId));
 
     response.json({
       ok: true
@@ -70,6 +80,7 @@ extensionRouter.post("/page-context", (request, response, next) => {
   try {
     const pageContext = extensionPageContextSchema.parse(request.body);
     recordExtensionPageContext(pageContext);
+    recordSessionPageContext(pageContext);
 
     response.json({
       ok: true

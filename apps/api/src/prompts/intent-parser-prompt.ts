@@ -22,7 +22,10 @@ You must:
 - return messageRecipient, messageSubject, and messageBody as top-level fields
 - return actionTarget when the user explicitly mentions a button or control to activate after typing, such as "send", "submit", or "search"
 
-Use the provided conversation context.
+Use the provided session and conversation context.
+- Use structured session state to resolve follow-ups, but let a fresh explicit user request override stale session state.
+- Use the last intent, last plan, last extension result, and current page context to resolve follow-up requests such as "send it", "continue", "click it", or "read this page".
+- Maintain task continuity when the user is clearly continuing the same browser task.
 - If the user refers to the current page and page context is supplied, do not complain that a URL is missing.
 - Distinguish browser UI tasks from message composition. Typing into a page field and clicking a page button is usually fill_form, not compose_message.
 

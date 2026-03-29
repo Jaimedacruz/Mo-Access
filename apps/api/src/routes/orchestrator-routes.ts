@@ -12,9 +12,13 @@ import {
 } from "../../../../shared/index";
 import { env } from "../config";
 import { buildActionPlan } from "../services/action-planner-service";
-import { getLastExtensionPageContext } from "../services/extension-bridge-service";
+import { getExtensionBridgeState, getLastExtensionPageContext, requestFreshPageContext } from "../services/extension-bridge-service";
 import { parseIntent } from "../services/intent-parser-service";
 import { summarizePageContext } from "../services/page-summary-service";
+import {
+  buildSessionContextForParser,
+  recordSessionIntentPlan
+} from "../services/session-state-service";
 import { transcribeAudio } from "../services/transcription-service";
 
 const upload = multer({
@@ -25,6 +29,39 @@ const upload = multer({
 });
 
 export const orchestratorRouter = express.Router();
+
+function shouldRefreshPageContext(transcript: string) {
+  const normalized = transcript.toLowerCase();
+
+  return (
+    /(this page|this site|this website|current tab|on this page|on this site|read this|summari[sz]e this|what is on this|what is written on this)/i.test(
+      normalized
+    ) ||
+    /\b(it|this|that|here)\b/i.test(normalized) ||
+    /\b(click|press|send|submit|continue|type|fill|read|summari[sz]e)\b/i.test(normalized)
+  );
+}
+
+function buildPageContextSummary(pageContext: ReturnType<typeof getLastExtensionPageContext>) {
+  if (!pageContext) {
+    return null;
+  }
+
+  return `Title: ${pageContext.title}\nURL: ${pageContext.url}\nVisible text sample:\n${pageContext.textBlocks
+    .slice(0, 12)
+    .map((block) => `- ${block.text}`)
+    .join("\n")}`;
+}
+
+async function resolvePageContextForTurn(transcript: string) {
+  const bridgeState = getExtensionBridgeState();
+
+  if (!bridgeState.extensionConnected || !shouldRefreshPageContext(transcript)) {
+    return getLastExtensionPageContext();
+  }
+
+  return requestFreshPageContext();
+}
 
 orchestratorRouter.get("/health", (_request, response) => {
   response.json({
@@ -61,16 +98,21 @@ orchestratorRouter.post(
 orchestratorRouter.post("/parse-intent", async (request, response, next) => {
   try {
     const { transcript, history, pendingConfirmation } = parseIntentRequestSchema.parse(request.body);
-    const pageContext = getLastExtensionPageContext();
+    const pageContext = await resolvePageContextForTurn(transcript);
+    const sessionContext = buildSessionContextForParser();
     const intent = await parseIntent(transcript, {
       history,
       pendingConfirmation,
-      pageContextSummary: pageContext
-        ? `Title: ${pageContext.title}\nURL: ${pageContext.url}\nVisible text sample:\n${pageContext.textBlocks
-            .slice(0, 12)
-            .map((block) => `- ${block.text}`)
-            .join("\n")}`
-        : null
+      lastIntent: sessionContext.lastIntent,
+      lastPlan: sessionContext.lastPlan,
+      lastExtensionResult: sessionContext.lastExtensionResult,
+      currentPageContext: pageContext ?? sessionContext.currentPageContext,
+      pageContextSummary: buildPageContextSummary(pageContext),
+      sessionStateSummary: sessionContext.sessionStateSummary,
+      lastIntentSummary: sessionContext.lastIntentSummary,
+      lastPlanSummary: sessionContext.lastPlanSummary,
+      lastExtensionResultSummary: sessionContext.lastExtensionResultSummary,
+      currentPageContextSummary: buildPageContextSummary(pageContext) ?? sessionContext.currentPageContextSummary
     });
 
     response.json(
@@ -102,18 +144,24 @@ orchestratorRouter.post("/plan", async (request, response, next) => {
 orchestratorRouter.post("/orchestrate", async (request, response, next) => {
   try {
     const { transcript, history, pendingConfirmation } = orchestrateRequestSchema.parse(request.body);
-    const pageContext = getLastExtensionPageContext();
+    const pageContext = await resolvePageContextForTurn(transcript);
+    const sessionContext = buildSessionContextForParser();
     const intent = await parseIntent(transcript, {
       history,
       pendingConfirmation,
-      pageContextSummary: pageContext
-        ? `Title: ${pageContext.title}\nURL: ${pageContext.url}\nVisible text sample:\n${pageContext.textBlocks
-            .slice(0, 12)
-            .map((block) => `- ${block.text}`)
-            .join("\n")}`
-        : null
+      lastIntent: sessionContext.lastIntent,
+      lastPlan: sessionContext.lastPlan,
+      lastExtensionResult: sessionContext.lastExtensionResult,
+      currentPageContext: pageContext ?? sessionContext.currentPageContext,
+      pageContextSummary: buildPageContextSummary(pageContext),
+      sessionStateSummary: sessionContext.sessionStateSummary,
+      lastIntentSummary: sessionContext.lastIntentSummary,
+      lastPlanSummary: sessionContext.lastPlanSummary,
+      lastExtensionResultSummary: sessionContext.lastExtensionResultSummary,
+      currentPageContextSummary: buildPageContextSummary(pageContext) ?? sessionContext.currentPageContextSummary
     });
     const plan = buildActionPlan(intent);
+    recordSessionIntentPlan(intent, plan, pageContext);
     const wantsSummary =
       intent.type === "read_page" &&
       pageContext &&
