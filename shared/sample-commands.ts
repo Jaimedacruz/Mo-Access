@@ -10,7 +10,7 @@ export const statusLabels = {
   idle: "Idle",
   transcribing: "Transcribing audio",
   parsing: "Parsing intent",
-  planning: "Planning safe actions",
-  ready: "Ready to review",
+  planning: "Executing browser actions",
+  ready: "Ready",
   error: "Error"
 } as const;

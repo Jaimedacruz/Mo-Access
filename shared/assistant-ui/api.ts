@@ -1,19 +1,21 @@
 import {
+  agentContinueRequestSchema,
+  agentContinueResponseSchema,
+  agentStartResponseSchema,
+  agentStateResponseSchema,
   extensionBridgeStateSchema,
   extensionCommandResultSchema,
-  extensionExecuteResponseSchema,
   feedbackSpeechRequestSchema,
-  orchestratorResponseSchema,
   transcriptionResponseSchema,
-  type ActionPlan,
-  type ExtensionCommand,
-  type FeedbackSpeechRequest,
-  type ExtensionTarget,
-  type OrchestratorResponse
+  type AgentContinueResponse,
+  type AgentStartResponse,
+  type AgentStateResponse,
+  type FeedbackSpeechRequest
 } from "../index";
 
-type OrchestrateOptions = {
+type AgentStartOptions = {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  maxSteps?: number;
 };
 
 function resolveApiBaseUrl() {
@@ -31,19 +33,6 @@ async function parseJsonResponse<T>(response: Response, parser: { parse(data: un
   }
 
   return parser.parse(payload);
-}
-
-function mapStepTarget(target: string | undefined): ExtensionTarget {
-  return {
-    text: target ?? null,
-    fieldHint: target ?? null,
-    role: target?.toLowerCase().includes("button") || target?.toLowerCase().includes("send") ? "button" : null,
-    selector: null,
-    name: null,
-    id: null,
-    ariaLabel: null,
-    placeholder: null
-  };
 }
 
 export async function transcribeAudio(file: File) {
@@ -90,22 +79,58 @@ export async function synthesizeFeedbackAudio(
   return response.blob();
 }
 
-export async function orchestrateTranscript(
+export async function startAgentRun(
   transcript: string,
-  options?: OrchestrateOptions
-): Promise<OrchestratorResponse> {
-  const response = await fetch(`${resolveApiBaseUrl()}/api/orchestrate`, {
+  options?: AgentStartOptions
+): Promise<AgentStartResponse> {
+  const response = await fetch(`${resolveApiBaseUrl()}/api/agent/start`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
       transcript,
-      history: options?.history ?? []
+      history: options?.history ?? [],
+      autoRun: false,
+      maxSteps: options?.maxSteps
     })
   });
 
-  return parseJsonResponse(response, orchestratorResponseSchema);
+  return parseJsonResponse(response, agentStartResponseSchema);
+}
+
+export async function continueAgentRun(maxSteps = 1): Promise<AgentContinueResponse> {
+  const payload = agentContinueRequestSchema.parse({ maxSteps });
+  const response = await fetch(`${resolveApiBaseUrl()}/api/agent/continue`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  return parseJsonResponse(response, agentContinueResponseSchema);
+}
+
+export async function pauseAgentRun(): Promise<AgentStateResponse> {
+  const response = await fetch(`${resolveApiBaseUrl()}/api/agent/pause`, {
+    method: "POST"
+  });
+
+  return parseJsonResponse(response, agentStateResponseSchema);
+}
+
+export async function cancelAgentRun(): Promise<AgentStateResponse> {
+  const response = await fetch(`${resolveApiBaseUrl()}/api/agent/cancel`, {
+    method: "POST"
+  });
+
+  return parseJsonResponse(response, agentStateResponseSchema);
+}
+
+export async function getAgentState(): Promise<AgentStateResponse> {
+  const response = await fetch(`${resolveApiBaseUrl()}/api/agent/state`);
+  return parseJsonResponse(response, agentStateResponseSchema);
 }
 
 export async function getExtensionState() {
@@ -116,86 +141,4 @@ export async function getExtensionState() {
 export async function getExtensionCommandResult(commandId: string) {
   const response = await fetch(`${resolveApiBaseUrl()}/api/extension/result/${encodeURIComponent(commandId)}`);
   return parseJsonResponse(response, extensionCommandResultSchema);
-}
-
-export async function queueExtensionCommand(command: ExtensionCommand) {
-  const response = await fetch(`${resolveApiBaseUrl()}/api/extension/execute`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ command })
-  });
-
-  return parseJsonResponse(response, extensionExecuteResponseSchema);
-}
-
-export function mapPlanToExtensionCommands(
-  plan: ActionPlan,
-  options?: { newTabForNavigation?: boolean }
-) {
-  const commands: ExtensionCommand[] = [];
-
-  for (const [index, step] of plan.steps.entries()) {
-    const id = `plan_${Date.now()}_${index}`;
-
-    switch (step.type) {
-      case "navigate":
-        if (step.target) {
-          commands.push({
-            id,
-            type: "navigate",
-            url: step.target.startsWith("http") ? step.target : `http://localhost:5173${step.target}`,
-            newTab: options?.newTabForNavigation ?? false
-          });
-        }
-        break;
-      case "type":
-        if (step.fieldHint && typeof step.value === "string") {
-          commands.push({
-            id,
-            type: "fill_field",
-            target: {
-              fieldHint: step.fieldHint,
-              text: null,
-              role: null,
-              selector: null,
-              name: null,
-              id: null,
-              ariaLabel: null,
-              placeholder: null
-            },
-            value: step.value
-          });
-        }
-        break;
-      case "click":
-        commands.push({
-          id,
-          type: "click",
-          target: mapStepTarget(step.target)
-        });
-        break;
-      case "extract_text":
-        commands.push({
-          id,
-          type: "extract_text_blocks"
-        });
-        break;
-      case "search":
-        if (step.query) {
-          commands.push({
-            id,
-            type: "navigate",
-            url: `https://www.google.com/search?q=${encodeURIComponent(step.query)}`,
-            newTab: options?.newTabForNavigation ?? false
-          });
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
-  return commands;
 }

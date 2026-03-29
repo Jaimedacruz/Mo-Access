@@ -1,5 +1,5 @@
 import { extensionCommandSchema, type ExtensionCommand, type ExtensionCommandResult } from "@shared/index";
-import { isReasonableUrl } from "@extension/shared/normalize";
+import { includesNormalized, isReasonableUrl } from "@extension/shared/normalize";
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({
@@ -8,6 +8,12 @@ async function getActiveTab() {
   });
 
   return tab ?? null;
+}
+
+async function getCurrentWindowTabs() {
+  return chrome.tabs.query({
+    currentWindow: true
+  });
 }
 
 async function injectContentScript(tabId: number) {
@@ -135,6 +141,64 @@ export async function runCommand(commandInput: ExtensionCommand): Promise<Extens
         data: {
           tabId: tab.id,
           url: command.url
+        }
+      };
+    }
+    case "open_new_tab": {
+      if (!isReasonableUrl(command.url)) {
+        return {
+          commandId: command.id,
+          ok: false,
+          action: "open_new_tab",
+          message: "The URL is not a valid http or https destination."
+        };
+      }
+
+      const createdTab = await chrome.tabs.create({ url: command.url, active: true });
+      return {
+        commandId: command.id,
+        ok: true,
+        action: "open_new_tab",
+        message: "Opened the destination in a new tab.",
+        data: {
+          tabId: createdTab.id ?? null,
+          url: createdTab.url ?? command.url
+        }
+      };
+    }
+    case "switch_tab": {
+      const tabs = await getCurrentWindowTabs();
+      const tab =
+        typeof command.tabId === "number"
+          ? tabs.find((candidate) => candidate.id === command.tabId) ?? null
+          : tabs.find((candidate) =>
+              includesNormalized(candidate.title, command.query) || includesNormalized(candidate.url, command.query)
+            ) ?? null;
+
+      if (!tab?.id) {
+        return {
+          commandId: command.id,
+          ok: false,
+          action: "switch_tab",
+          message: "No matching tab was found."
+        };
+      }
+
+      await chrome.tabs.update(tab.id, { active: true });
+
+      if (typeof tab.windowId === "number") {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
+
+      return {
+        commandId: command.id,
+        ok: true,
+        action: "switch_tab",
+        message: "Switched to the requested tab.",
+        data: {
+          tabId: tab.id,
+          title: tab.title ?? null,
+          url: tab.url ?? null
         }
       };
     }

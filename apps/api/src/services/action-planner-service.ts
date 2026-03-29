@@ -52,6 +52,15 @@ function buildGmailComposeUrl(intent: Intent) {
   return url.toString();
 }
 
+function hasCompleteEmailRecipient(intent: Intent) {
+  const recipient = intent.message?.recipient?.trim();
+  if (!recipient) {
+    return false;
+  }
+
+  return /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(recipient);
+}
+
 export function buildActionPlan(intent: Intent): ActionPlan {
   const steps: ActionStep[] = [];
   const notes = [...intent.notes];
@@ -150,6 +159,7 @@ export function buildActionPlan(intent: Intent): ActionPlan {
         intent.target?.toLowerCase().includes("gmail") || intent.page?.toLowerCase().includes("gmail")
           ? buildGmailComposeUrl(intent)
           : null;
+      const hasDeliverableRecipient = hasCompleteEmailRecipient(intent);
 
       if (gmailComposeUrl) {
         steps.push({
@@ -159,13 +169,15 @@ export function buildActionPlan(intent: Intent): ActionPlan {
           requiresConfirmation: false
         });
 
-        if (intent.message?.subject || intent.message?.body) {
+        if ((intent.message?.subject || intent.message?.body) && hasDeliverableRecipient) {
           steps.push({
             type: "click",
             description: "Click the Send button in Gmail.",
             target: "send button",
             requiresConfirmation: false
           });
+        } else if (!hasDeliverableRecipient) {
+          notes.push("The Gmail draft will open, but the recipient address needs to be completed before sending.");
         } else {
           notes.push("The email content is missing, so the plan opens Gmail but does not send a blank message.");
         }

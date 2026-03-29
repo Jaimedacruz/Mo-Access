@@ -113,12 +113,22 @@ async function pollOrchestratorQueue() {
       orchestratorReachable: health.ok
     });
 
-    const next = await pollNextCommand();
-    if (next.command) {
+    let pending = true;
+    while (pending) {
+      const next = await pollNextCommand();
+      if (!next.command) {
+        pending = false;
+        break;
+      }
+
       const command = extensionCommandSchema.parse(next.command);
       const result = await runAndStore(command);
       await postResult(result);
       await updateHeartbeat(command.id);
+
+      if (["navigate", "open_new_tab", "switch_tab"].includes(command.type)) {
+        pending = false;
+      }
     }
   } catch {
     await setState({
@@ -191,13 +201,18 @@ chrome.tabs.onActivated.addListener(async () => {
   await setState({
     currentTabUrl: activeTab.url
   });
+  await pollOrchestratorQueue();
 });
 
-chrome.tabs.onUpdated.addListener(async (_tabId, _changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo, tab) => {
   if (tab.active) {
     await setState({
       currentTabUrl: tab.url ?? null
     });
+  }
+
+  if (tab.active && changeInfo.status === "complete") {
+    await pollOrchestratorQueue();
   }
 });
 

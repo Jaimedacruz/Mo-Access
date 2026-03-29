@@ -141,6 +141,76 @@ body {
   background: rgba(255, 233, 230, 0.96);
 }
 
+.assistant-agent-panel {
+  background: rgba(255, 252, 246, 0.88);
+  border: 1px solid rgba(21, 33, 40, 0.08);
+  border-radius: 1.35rem;
+  box-shadow: 0 10px 28px rgba(21, 33, 40, 0.06);
+  padding: 1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.assistant-agent-summary {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.assistant-agent-summary p,
+.assistant-agent-step p {
+  margin: 0.2rem 0 0;
+}
+
+.assistant-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.assistant-agent-step-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.assistant-agent-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem 0.85rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(21, 33, 40, 0.08);
+}
+
+.assistant-agent-step-index {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  background: #e6f3ee;
+  color: #145449;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.assistant-agent-step-completed {
+  background: rgba(226, 244, 236, 0.78);
+}
+
+.assistant-agent-step-running {
+  background: rgba(255, 249, 239, 0.88);
+}
+
+.assistant-agent-step-blocked {
+  background: rgba(255, 233, 230, 0.82);
+}
+
 .assistant-sample-row {
   display: flex;
   flex-wrap: wrap;
@@ -149,6 +219,7 @@ body {
 
 .assistant-sample-chip,
 .assistant-status-pill,
+.assistant-agent-pill,
 .assistant-meta-chip,
 .assistant-attachment-pill,
 .assistant-text-button,
@@ -369,6 +440,17 @@ body {
   font-weight: 700;
 }
 
+.assistant-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.92);
+  color: #284048;
+}
+
 .assistant-status-idle,
 .assistant-status-ready {
   background: #dff3ec;
@@ -387,6 +469,29 @@ body {
 }
 
 .assistant-status-error {
+  background: #ffe1e1;
+  color: #a3372b;
+}
+
+.assistant-agent-running,
+.assistant-agent-waiting_for_extension {
+  background: #fff0da;
+  color: #8b5316;
+}
+
+.assistant-agent-paused {
+  background: #e7edf8;
+  color: #35568a;
+}
+
+.assistant-agent-completed {
+  background: #dff3ec;
+  color: #135549;
+}
+
+.assistant-agent-blocked,
+.assistant-agent-failed,
+.assistant-agent-cancelled {
   background: #ffe1e1;
   color: #a3372b;
 }

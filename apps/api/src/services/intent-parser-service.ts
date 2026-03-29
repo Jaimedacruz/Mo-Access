@@ -148,6 +148,18 @@ function normalizeTranscript(transcript: string) {
   return transcript.trim().replace(/\s+/g, " ");
 }
 
+function extractEmailLikeRecipient(transcript: string) {
+  return transcript.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+(?:\.[A-Z]{2,})?\b/i)?.[0] ?? null;
+}
+
+function isCompleteEmailAddress(value: string | null | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  return /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(value.trim());
+}
+
 function isFollowUpRequest(transcript: string) {
   return /^(send|send it|submit|submit it|continue|finish|click send|read it|read it aloud|summari[sz]e it|what does it say|what is on it)$/i.test(
     transcript.trim()
@@ -174,6 +186,8 @@ function cleanExtractedMessagePart(value: string | null) {
   const cleaned = value
     .trim()
     .replace(/^(that\s+says?|saying|with\s+body|body(?::|\s+is)?|message(?::|\s+is)?|saying\s+that)\s+/i, "")
+    .replace(/\bsubject\s+(?:should\s+be|is)\s+["']?.+$/i, "")
+    .replace(/\bwith subject\s+["']?.+$/i, "")
     .replace(/^["']|["']$/g, "")
     .trim()
     .replace(/[.?!]+$/, "")
@@ -185,7 +199,9 @@ function cleanExtractedMessagePart(value: string | null) {
 function extractEmailMessageDetails(transcript: string) {
   const subjectPatterns = [
     /\bsubject\s*:\s*["']?(.+?)["']?(?=(?:\s+\b(?:body|message)\b\s*:|\s+\b(?:and\s+)?(?:body|message)\b\s+|$))/i,
-    /\bwith subject\s+["']?(.+?)["']?(?=(?:\s+\b(?:body|message)\b\s*:|\s+\b(?:and\s+)?(?:body|message)\b\s+|$))/i
+    /\bwith subject\s+["']?(.+?)["']?(?=(?:\s+\b(?:body|message)\b\s*:|\s+\b(?:and\s+)?(?:body|message)\b\s+|$))/i,
+    /\bsubject should be\s+["']?(.+?)["']?$/i,
+    /\bsubject is\s+["']?(.+?)["']?$/i
   ];
 
   const bodyPatterns = [
@@ -223,7 +239,7 @@ function extractEmailMessageDetails(transcript: string) {
 
 function maybeParseDeterministically(transcript: string, context?: ParseIntentContext): Intent | null {
   const trimmed = normalizeTranscript(transcript);
-  const emailMatch = trimmed.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+  const emailLikeRecipient = extractEmailLikeRecipient(trimmed);
 
   const searchMatch = trimmed.match(/^(?:search(?:\s+the\s+web)?\s+for|look\s+up|google|find)\s+(.+)$/i);
   if (searchMatch) {
@@ -316,8 +332,8 @@ function maybeParseDeterministically(transcript: string, context?: ParseIntentCo
     });
   }
 
-  if (emailMatch && /(gmail|email|e-mail|mail)\b/i.test(trimmed)) {
-    const recipient = emailMatch[0];
+  if (emailLikeRecipient && /(gmail|email|e-mail|mail)\b/i.test(trimmed)) {
+    const recipient = emailLikeRecipient;
     const wantsGreetingOnly = /(just\s+greet|greet\s+the\s+person|say\s+hi|say\s+hello|just\s+say\s+hi|just\s+say\s+hello)/i.test(
       trimmed
     );
@@ -325,6 +341,26 @@ function maybeParseDeterministically(transcript: string, context?: ParseIntentCo
     const subject = extractedDetails.subject;
     const body = wantsGreetingOnly ? extractedDetails.body ?? "Hello," : extractedDetails.body;
     const wantsSend = /\b(send|send it|don'?t forget to send|and send|then send)\b/i.test(trimmed);
+    const completeRecipient = isCompleteEmailAddress(recipient);
+    const notes = [];
+
+    if (!completeRecipient) {
+      notes.push("Recipient appears to be missing a top-level domain or full email address.");
+    }
+
+    if (body || subject) {
+      notes.push(
+        wantsSend && completeRecipient
+          ? "The request includes email content and explicitly asks to send it."
+          : "The request includes email content for drafting."
+      );
+    } else {
+      notes.push("The recipient is clear enough to draft an email, but the message content was not fully specified.");
+    }
+
+    if (wantsSend && !completeRecipient) {
+      notes.push("The draft will open in Gmail, but send should wait until the recipient address is complete.");
+    }
 
     return intentSchema.parse({
       type: "compose_message",
@@ -335,7 +371,7 @@ function maybeParseDeterministically(transcript: string, context?: ParseIntentCo
       page: "gmail",
       currentPage: false,
       target: "gmail",
-      actionTarget: "send button",
+      actionTarget: wantsSend && completeRecipient ? "send button" : null,
       query: null,
       fields: {},
       message: {
@@ -344,16 +380,9 @@ function maybeParseDeterministically(transcript: string, context?: ParseIntentCo
         body
       },
       requiresConfirmation: false,
-      safetyLevel: body || subject ? "medium" : "high",
+      safetyLevel: completeRecipient && (body || subject) ? "medium" : "high",
       confirmationMessage: null,
-      notes:
-        body || subject
-          ? [
-              wantsSend
-                ? "The request includes email content and explicitly asks to send it."
-                : "The request includes email content for drafting."
-            ]
-          : ["The recipient is clear, but the message content was not fully specified."]
+      notes
     });
   }
 

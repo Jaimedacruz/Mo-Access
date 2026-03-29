@@ -6,16 +6,18 @@ import {
   safetyLevelSchema,
   statusLabels,
   type ActionPlan,
+  type AgentRun,
+  type AgentRunStatus,
   type AssistantStatus,
   type Intent,
   type SafetyLevel
 } from "../index";
 import {
+  cancelAgentRun,
+  continueAgentRun,
+  getAgentState,
   getExtensionCommandResult,
-  getExtensionState,
-  mapPlanToExtensionCommands,
-  orchestrateTranscript,
-  queueExtensionCommand,
+  startAgentRun,
   transcribeAudio
 } from "./api";
 import {
@@ -24,7 +26,6 @@ import {
   buildExecutionResultMessage,
   buildPlanFeedbackEvent,
   buildProcessingFeedbackEvent,
-  buildQueueFeedbackEvent,
   type FeedbackEvent
 } from "./feedback-events";
 import { FeedbackSpeechController } from "./feedback-speech";
@@ -63,6 +64,44 @@ const chatMessageSchema = z
   .strict();
 const storedChatHistorySchema = z.array(chatMessageSchema);
 const voiceFeedbackStorageKey = "mo-access-voice-feedback-enabled";
+const activeAgentStatuses: AgentRunStatus[] = ["running", "waiting_for_extension"];
+
+function agentStatusLabel(status: AgentRunStatus) {
+  return status.replace(/_/g, " ");
+}
+
+function agentTerminalMessage(run: AgentRun) {
+  switch (run.status) {
+    case "completed":
+      return "I finished the full browser task.";
+    case "blocked":
+      return run.blockedReason ?? run.stopReason ?? "I got blocked and need a clearer instruction.";
+    case "failed":
+      return run.stopReason ?? "The agent run failed.";
+    case "cancelled":
+      return run.stopReason ?? "The agent run was cancelled.";
+    case "paused":
+      return run.stopReason ?? "The agent run is paused.";
+    default:
+      return null;
+  }
+}
+
+function statusFromAgentRun(run: AgentRun | null): AssistantStatus {
+  if (!run) {
+    return "ready";
+  }
+
+  if (run.status === "running" || run.status === "waiting_for_extension") {
+    return "planning";
+  }
+
+  if (run.status === "blocked" || run.status === "failed" || run.status === "cancelled") {
+    return "error";
+  }
+
+  return "ready";
+}
 
 function createId() {
   if (typeof globalThis.crypto?.randomUUID === "function") {
@@ -95,7 +134,7 @@ function buildWelcomeMessage(title: string): ChatMessage {
   return {
     id: "welcome",
     role: "assistant",
-    content: `Welcome to ${title}. Tell me what you want to do on the web and I'll turn it into executable browser actions when the request is clear.`
+    content: `Welcome to ${title}. Tell me what you want to do on the web and I'll execute clear browser tasks automatically.`
   };
 }
 
@@ -120,7 +159,7 @@ function loadStoredMessages(historyStorageKey: string, fallbackMessages: ChatMes
 
 function buildAssistantReply(intent: Intent, plan: ActionPlan, assistantMessage: string | null): ChatMessage {
   const summary = intent.summary.endsWith(".") ? intent.summary : `${intent.summary}.`;
-  const content = assistantMessage ?? `${summary} I prepared a plan for you.`;
+  const content = assistantMessage ?? `${summary} I'm executing it now.`;
 
   return {
     id: createId(),
@@ -163,13 +202,20 @@ export function AssistantSurface({
   const [voiceFeedbackEnabled, setVoiceFeedbackEnabled] = useState<boolean>(() =>
     loadStoredBoolean(voiceFeedbackStorageKey, false)
   );
+  const [agentRun, setAgentRun] = useState<AgentRun | null>(null);
+  const [isAgentRequestPending, setIsAgentRequestPending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const speechControllerRef = useRef<FeedbackSpeechController | null>(null);
-  const isBusy = status === "transcribing" || status === "parsing" || status === "planning";
+  const processedCommandIdsRef = useRef<Set<string>>(new Set());
+  const lastAnnouncedStepKeyRef = useRef<string | null>(null);
+  const lastTerminalRunKeyRef = useRef<string | null>(null);
+  const isAgentActive = agentRun ? activeAgentStatuses.includes(agentRun.status) : false;
+  const isBusy =
+    status === "transcribing" || status === "parsing" || status === "planning" || isAgentRequestPending || isAgentActive;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -203,6 +249,24 @@ export function AssistantSurface({
       speechControllerRef.current?.cancel();
     }
   }, [voiceFeedbackEnabled]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    void getAgentState()
+      .then((response) => {
+        if (!isCancelled && response.agentRun) {
+          void syncAgentRun(response.agentRun);
+        }
+      })
+      .catch(() => {
+        // Ignore bootstrap agent state failures in the UI.
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   function addMessage(message: ChatMessage) {
     setMessages((previous) => [...previous, message]);
@@ -246,49 +310,6 @@ export function AssistantSurface({
     }));
   }
 
-  async function queuePlanExecution(plan: ActionPlan) {
-    const commands = mapPlanToExtensionCommands(plan, {
-      newTabForNavigation: surface !== "panel"
-    }).filter((command) => {
-      const step = plan.steps.find((candidate) => {
-        if (candidate.type === "navigate" && command.type === "navigate") {
-          return true;
-        }
-        if (candidate.type === "type" && command.type === "fill_field") {
-          return true;
-        }
-        if (candidate.type === "click" && command.type === "click") {
-          return true;
-        }
-        if (candidate.type === "extract_text" && command.type === "extract_text_blocks") {
-          return true;
-        }
-        if (candidate.type === "search" && command.type === "navigate") {
-          return true;
-        }
-
-        return false;
-      });
-
-      return step ? !step.requiresConfirmation : true;
-    });
-
-    if (commands.length === 0) {
-      throw new Error("There are no executable browser steps yet. Add more detail if you want something specific to happen on the page.");
-    }
-
-    const bridgeState = await getExtensionState();
-    for (const command of commands) {
-      await queueExtensionCommand(command);
-    }
-
-    return {
-      commands,
-      queuedCount: commands.length,
-      extensionConnected: bridgeState.extensionConnected
-    };
-  }
-
   async function waitForCommandResult(commandId: string, timeoutMs = 12000) {
     const startedAt = Date.now();
 
@@ -307,64 +328,131 @@ export function AssistantSurface({
     throw new Error(`Timed out waiting for extension result ${commandId}.`);
   }
 
-  async function requestFreshExecutionPageContext() {
-    const commandId = `exec_context_${Date.now()}`;
-    await queueExtensionCommand({
-      id: commandId,
-      type: "get_page_context"
-    });
+  async function syncAgentRun(nextRun: AgentRun | null) {
+    setAgentRun(nextRun);
+    setStatus(statusFromAgentRun(nextRun));
 
-    return waitForCommandResult(commandId, 12000);
-  }
+    if (!nextRun) {
+      return;
+    }
 
-  async function monitorQueuedExecution(commandIds: string[]) {
-    for (const commandId of commandIds) {
+    const currentStepKey =
+      nextRun.currentStepIndex !== null && activeAgentStatuses.includes(nextRun.status)
+        ? `${nextRun.id}:${nextRun.currentStepIndex}:${nextRun.status}`
+        : null;
+
+    if (currentStepKey && currentStepKey !== lastAnnouncedStepKeyRef.current && nextRun.currentStepDescription) {
+      lastAnnouncedStepKeyRef.current = currentStepKey;
+      addFeedbackEvent({
+        id: createId(),
+        type: "progress",
+        message: `Now working on: ${nextRun.currentStepDescription}`,
+        shouldSpeak: true,
+        priority: "normal"
+      });
+    }
+
+    for (const step of nextRun.steps) {
+      if (
+        !step.commandId ||
+        processedCommandIdsRef.current.has(step.commandId) ||
+        (step.status !== "completed" && step.status !== "blocked")
+      ) {
+        continue;
+      }
+
+      processedCommandIdsRef.current.add(step.commandId);
+
       try {
-        const result = await waitForCommandResult(commandId);
-        let feedbackResult = result;
+        const result = await waitForCommandResult(step.commandId, 2_000);
+        addFeedbackEvent(buildExecutionFeedbackEvent(result));
+        const executionMessage = buildExecutionResultMessage(result);
+        addMessage({
+          id: createId(),
+          role: "assistant",
+          content: executionMessage.content,
+          tone: executionMessage.tone
+        });
+      } catch {
+        addMessage({
+          id: createId(),
+          role: "assistant",
+          content:
+            step.resultMessage ??
+            (step.status === "completed" ? `${step.description} completed.` : `${step.description} could not be completed.`),
+          tone: step.status === "blocked" ? "error" : "default"
+        });
+      }
+    }
 
-        if (result.ok && result.action === "navigate") {
-          try {
-            feedbackResult = await requestFreshExecutionPageContext();
-          } catch (error) {
-            console.error("Follow-up page context request failed.", error);
-          }
-        }
-
-        addFeedbackEvent(buildExecutionFeedbackEvent(feedbackResult));
-
-        const executionMessage = buildExecutionResultMessage(feedbackResult);
-        if (executionMessage) {
-          addMessage({
-            id: createId(),
-            role: "assistant",
-            content: executionMessage.content,
-            tone: executionMessage.tone
-          });
-        }
-      } catch (error) {
-        console.error("Execution feedback polling failed.", error);
+    if (
+      !activeAgentStatuses.includes(nextRun.status) &&
+      nextRun.status !== "idle" &&
+      lastTerminalRunKeyRef.current !== `${nextRun.id}:${nextRun.status}`
+    ) {
+      lastTerminalRunKeyRef.current = `${nextRun.id}:${nextRun.status}`;
+      const terminalMessage = agentTerminalMessage(nextRun);
+      if (terminalMessage) {
+        addFeedbackEvent({
+          id: createId(),
+          type: nextRun.status === "completed" ? "success" : nextRun.status === "paused" ? "warning" : "error",
+          message: terminalMessage,
+          shouldSpeak: true,
+          priority: nextRun.status === "completed" ? "normal" : "high"
+        });
+        addMessage({
+          id: createId(),
+          role: "assistant",
+          content: terminalMessage,
+          tone: nextRun.status === "completed" ? "default" : "error"
+        });
       }
     }
   }
 
-  async function autoQueuePlanExecution(plan: ActionPlan) {
-    const execution = await queuePlanExecution(plan);
-    addFeedbackEvent(buildQueueFeedbackEvent(execution.queuedCount, execution.extensionConnected));
-    addMessage({
-      id: createId(),
-      role: "assistant",
-      content: execution.extensionConnected
-        ? `I queued ${execution.queuedCount} browser action${execution.queuedCount === 1 ? "" : "s"} for the extension.`
-        : `I queued ${execution.queuedCount} browser action${execution.queuedCount === 1 ? "" : "s"}. Open the extension to let it pick them up.`,
-      steps: plan.steps,
-      safetyLevel: plan.safetyLevel
-    });
+  async function advanceAgentRun(maxSteps = 1) {
+    setIsAgentRequestPending(true);
 
-    if (execution.extensionConnected) {
-      void monitorQueuedExecution(execution.commands.map((command) => command.id));
+    try {
+      const result = await continueAgentRun(maxSteps);
+      await syncAgentRun(result.agentRun);
+    } finally {
+      setIsAgentRequestPending(false);
     }
   }
+
+  useEffect(() => {
+    if (!agentRun || agentRun.status !== "running" || isAgentRequestPending) {
+      return;
+    }
+
+    void advanceAgentRun(1).catch((caughtError) => {
+      const message =
+        caughtError instanceof Error ? caughtError.message : "The agent could not continue the current task.";
+      setStatus("error");
+      setError(message);
+      addFeedbackEvent(buildErrorFeedbackEvent(message));
+      addErrorMessage(message);
+    });
+  }, [agentRun?.id, agentRun?.status, agentRun?.updatedAt, isAgentRequestPending]);
+
+  useEffect(() => {
+    if (!agentRun || agentRun.status !== "waiting_for_extension" || isAgentRequestPending) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void getAgentState()
+        .then((response) => syncAgentRun(response.agentRun))
+        .catch(() => {
+          // Ignore transient polling failures while the extension is processing.
+        });
+    }, 1000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [agentRun?.id, agentRun?.status, agentRun?.updatedAt, isAgentRequestPending]);
 
   async function sendTypedCommand(command: string) {
     const trimmed = command.trim();
@@ -381,19 +469,22 @@ export function AssistantSurface({
       role: "user",
       content: trimmed
     });
+    processedCommandIdsRef.current = new Set();
+    lastAnnouncedStepKeyRef.current = null;
+    lastTerminalRunKeyRef.current = null;
+    setAgentRun(null);
     setTypedCommand("");
     setStatus("parsing");
     addFeedbackEvent(buildProcessingFeedbackEvent("Understanding your request."));
 
     try {
-      const result = await orchestrateTranscript(trimmed, {
+      const result = await startAgentRun(trimmed, {
         history: conversationHistory()
       });
       setStatus("planning");
-      addMessage(buildAssistantReply(result.intent, result.plan, result.assistantMessage));
+      addMessage(buildAssistantReply(result.intent, result.plan, null));
       addFeedbackEvent(buildPlanFeedbackEvent(result.plan));
-      await autoQueuePlanExecution(result.plan);
-      setStatus("ready");
+      await syncAgentRun(result.agentRun);
     } catch (caughtError) {
       const message =
         caughtError instanceof Error ? caughtError.message : "I couldn't process that request.";
@@ -416,18 +507,21 @@ export function AssistantSurface({
         role: "user",
         content: transcript
       });
+      processedCommandIdsRef.current = new Set();
+      lastAnnouncedStepKeyRef.current = null;
+      lastTerminalRunKeyRef.current = null;
+      setAgentRun(null);
       setAudioFile(null);
       setStatus("parsing");
       addFeedbackEvent(buildProcessingFeedbackEvent("Understanding your request."));
 
-      const result = await orchestrateTranscript(transcript, {
+      const result = await startAgentRun(transcript, {
         history: conversationHistory()
       });
       setStatus("planning");
-      addMessage(buildAssistantReply(result.intent, result.plan, result.assistantMessage));
+      addMessage(buildAssistantReply(result.intent, result.plan, null));
       addFeedbackEvent(buildPlanFeedbackEvent(result.plan));
-      await autoQueuePlanExecution(result.plan);
-      setStatus("ready");
+      await syncAgentRun(result.agentRun);
     } catch (caughtError) {
       const message =
         caughtError instanceof Error ? caughtError.message : "I couldn't process that audio clip.";
@@ -504,6 +598,18 @@ export function AssistantSurface({
     }
   }
 
+  async function handleCancelAgent() {
+    try {
+      const result = await cancelAgentRun();
+      await syncAgentRun(result.agentRun);
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "The agent could not be cancelled.";
+      setStatus("error");
+      setError(message);
+      addFeedbackEvent(buildErrorFeedbackEvent(message));
+    }
+  }
+
   function handleSampleClick(command: string) {
     setTypedCommand(command);
   }
@@ -534,6 +640,11 @@ export function AssistantSurface({
             Voice feedback: {voiceFeedbackEnabled ? "On" : "Off"}
           </button>
           <span className={`assistant-status-pill assistant-status-${status}`}>{statusLabels[status]}</span>
+          {agentRun ? (
+            <span className={`assistant-agent-pill assistant-agent-${agentRun.status}`}>
+              Agent: {agentStatusLabel(agentRun.status)}
+            </span>
+          ) : null}
         </div>
       </header>
 
@@ -549,6 +660,55 @@ export function AssistantSurface({
         >
           <span className="assistant-feedback-label">Current feedback</span>
           <p>{latestFeedback.message}</p>
+        </section>
+      ) : null}
+
+      {agentRun ? (
+        <section className="assistant-agent-panel" aria-label="Agent run status">
+          <div className="assistant-agent-summary">
+            <div>
+              <span className="assistant-feedback-label">Current goal</span>
+              <p>{agentRun.goal}</p>
+            </div>
+            <div>
+              <span className="assistant-feedback-label">Progress</span>
+              <p>
+                {agentRun.completedSteps} of {agentRun.totalSteps} steps completed
+              </p>
+            </div>
+            {agentRun.currentStepDescription ? (
+              <div>
+                <span className="assistant-feedback-label">Current step</span>
+                <p>{agentRun.currentStepDescription}</p>
+              </div>
+            ) : null}
+            {agentRun.blockedReason ? (
+              <div>
+                <span className="assistant-feedback-label">Blocked reason</span>
+                <p>{agentRun.blockedReason}</p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="assistant-agent-actions">
+            {agentRun.status !== "completed" && agentRun.status !== "cancelled" ? (
+              <button className="assistant-text-button" onClick={() => void handleCancelAgent()} type="button">
+                Cancel
+              </button>
+            ) : null}
+          </div>
+
+          <ol className="assistant-agent-step-list">
+            {agentRun.steps.map((step) => (
+              <li key={`${agentRun.id}-${step.index}`} className={`assistant-agent-step assistant-agent-step-${step.status}`}>
+                <span className="assistant-agent-step-index">{step.index + 1}</span>
+                <div>
+                  <strong>{step.description}</strong>
+                  <p>{step.resultMessage ?? step.status.replace(/_/g, " ")}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
         </section>
       ) : null}
 

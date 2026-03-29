@@ -2,6 +2,11 @@ import express from "express";
 import multer from "multer";
 import {
   actionPlanResponseSchema,
+  agentContinueRequestSchema,
+  agentContinueResponseSchema,
+  agentStartRequestSchema,
+  agentStartResponseSchema,
+  agentStateResponseSchema,
   feedbackSpeechRequestSchema,
   intentSchema,
   orchestrateRequestSchema,
@@ -13,12 +18,16 @@ import {
 } from "../../../../shared/index";
 import { env } from "../config";
 import { buildActionPlan } from "../services/action-planner-service";
+import { executeNextAgentStep, runAgentLoop, startAgentLoop } from "../services/agent-loop-service";
 import { getExtensionBridgeState, getLastExtensionPageContext, requestFreshPageContext } from "../services/extension-bridge-service";
 import { synthesizeFeedbackAudio } from "../services/feedback-speech-service";
 import { parseIntent } from "../services/intent-parser-service";
 import { summarizePageContext } from "../services/page-summary-service";
 import {
   buildSessionContextForParser,
+  getAgentRun,
+  getSessionState,
+  updateAgentRunStatus,
   recordSessionIntentPlan
 } from "../services/session-state-service";
 import { transcribeAudio } from "../services/transcription-service";
@@ -49,10 +58,21 @@ function buildPageContextSummary(pageContext: ReturnType<typeof getLastExtension
     return null;
   }
 
-  return `Title: ${pageContext.title}\nURL: ${pageContext.url}\nVisible text sample:\n${pageContext.textBlocks
-    .slice(0, 12)
-    .map((block) => `- ${block.text}`)
-    .join("\n")}`;
+  return [
+    `Title: ${pageContext.title}`,
+    `URL: ${pageContext.url}`,
+    "Visible text sample:",
+    ...pageContext.textBlocks.slice(0, 12).map((block) => `- ${block.text}`),
+    "Field candidates:",
+    ...pageContext.fieldElements.slice(0, 10).map(
+      (field) => `- ${field.label ?? field.placeholder ?? field.ariaLabel ?? field.name ?? field.id ?? field.tag}`
+    ),
+    "Form summaries:",
+    ...pageContext.forms.slice(0, 6).map(
+      (form) =>
+        `- fields: ${form.fieldLabels.slice(0, 5).join(", ") || "none"} | submit: ${form.submitLabels.slice(0, 3).join(", ") || "none"}`
+    )
+  ].join("\n");
 }
 
 async function resolvePageContextForTurn(transcript: string) {
@@ -109,6 +129,135 @@ orchestratorRouter.post("/feedback/speech", async (request, response, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+orchestratorRouter.post("/agent/start", async (request, response, next) => {
+  try {
+    const { transcript, history, pendingConfirmation, autoRun, maxSteps } = agentStartRequestSchema.parse(request.body);
+    const pageContext = await resolvePageContextForTurn(transcript);
+    const sessionContext = buildSessionContextForParser();
+    const intent = await parseIntent(transcript, {
+      history,
+      pendingConfirmation,
+      lastIntent: sessionContext.lastIntent,
+      lastPlan: sessionContext.lastPlan,
+      lastExtensionResult: sessionContext.lastExtensionResult,
+      currentPageContext: pageContext ?? sessionContext.currentPageContext,
+      pageContextSummary: buildPageContextSummary(pageContext),
+      sessionStateSummary: sessionContext.sessionStateSummary,
+      lastIntentSummary: sessionContext.lastIntentSummary,
+      lastPlanSummary: sessionContext.lastPlanSummary,
+      lastExtensionResultSummary: sessionContext.lastExtensionResultSummary,
+      currentPageContextSummary: buildPageContextSummary(pageContext) ?? sessionContext.currentPageContextSummary
+    });
+    const plan = buildActionPlan(intent);
+
+    recordSessionIntentPlan(intent, plan, pageContext);
+    const agentRun = startAgentLoop(intent, plan, {
+      pageContext
+    });
+
+    const loopOutcome = autoRun ? await runAgentLoop(plan, { maxSteps }) : null;
+
+    response.json(
+      agentStartResponseSchema.parse({
+        transcript,
+        intent,
+        plan,
+        agentRun: getAgentRun() ?? agentRun,
+        loopOutcome
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+orchestratorRouter.post("/agent/continue", async (request, response, next) => {
+  try {
+    const { maxSteps } = agentContinueRequestSchema.parse(request.body);
+    const sessionState = getSessionState();
+    const currentPlan = sessionState.lastPlan;
+    const currentRun = getAgentRun();
+
+    if (!currentRun || !currentPlan) {
+      response.status(404).json({
+        error: "No active agent run is available."
+      });
+      return;
+    }
+
+    if (currentRun.status === "paused") {
+      updateAgentRunStatus("running", {
+        blockedReason: null,
+        stopReason: null
+      });
+    }
+
+    const nextStepResult =
+      maxSteps > 1 ? await runAgentLoop(currentPlan, { maxSteps }) : await executeNextAgentStep(currentPlan);
+    const loopOutcome = {
+      status: nextStepResult.status,
+      reason: "reason" in nextStepResult ? nextStepResult.reason ?? null : null
+    };
+
+    response.json(
+      agentContinueResponseSchema.parse({
+        agentRun: getAgentRun(),
+        loopOutcome
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+orchestratorRouter.post("/agent/pause", (_request, response) => {
+  const run = updateAgentRunStatus("paused", {
+    blockedReason: null,
+    stopReason: "The agent run was paused."
+  });
+
+  if (!run) {
+    response.status(404).json({
+      error: "No active agent run is available."
+    });
+    return;
+  }
+
+  response.json(
+    agentStateResponseSchema.parse({
+      agentRun: getAgentRun()
+    })
+  );
+});
+
+orchestratorRouter.post("/agent/cancel", (_request, response) => {
+  const run = updateAgentRunStatus("cancelled", {
+    blockedReason: null,
+    stopReason: "The agent run was cancelled."
+  });
+
+  if (!run) {
+    response.status(404).json({
+      error: "No active agent run is available."
+    });
+    return;
+  }
+
+  response.json(
+    agentStateResponseSchema.parse({
+      agentRun: getAgentRun()
+    })
+  );
+});
+
+orchestratorRouter.get("/agent/state", (_request, response) => {
+  response.json(
+    agentStateResponseSchema.parse({
+      agentRun: getAgentRun()
+    })
+  );
 });
 
 orchestratorRouter.post("/parse-intent", async (request, response, next) => {

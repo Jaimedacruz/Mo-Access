@@ -19,6 +19,17 @@ export const feedbackEventTypeSchema = z.enum([
   "awaiting_confirmation"
 ]);
 export const feedbackSpeechVoiceSchema = z.enum(["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"]);
+export const agentRunStatusSchema = z.enum([
+  "idle",
+  "running",
+  "waiting_for_extension",
+  "paused",
+  "blocked",
+  "completed",
+  "failed",
+  "cancelled"
+]);
+export const agentStepStatusSchema = z.enum(["pending", "running", "completed", "blocked", "skipped"]);
 
 export const intentTypeSchema = z.enum([
   "open_page",
@@ -56,8 +67,14 @@ export const intentSchema = z
 
 export const commandTypeSchema = z.enum([
   "navigate",
+  "open_new_tab",
+  "switch_tab",
   "click",
   "type",
+  "select_option",
+  "scroll",
+  "press_key",
+  "wait_for_element",
   "extract_text",
   "confirm",
   "search",
@@ -128,6 +145,85 @@ export const feedbackSpeechRequestSchema = z
     voice: feedbackSpeechVoiceSchema.optional()
   })
   .strict();
+export const agentRunStepSchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    type: commandTypeSchema,
+    description: z.string().min(1),
+    status: agentStepStatusSchema,
+    commandId: z.string().nullable(),
+    commandType: z.string().nullable(),
+    startedAt: z.string().nullable(),
+    completedAt: z.string().nullable(),
+    resultOk: z.boolean().nullable(),
+    resultMessage: z.string().nullable()
+  })
+  .strict();
+export const agentRunSchema = z
+  .object({
+    id: z.string().min(1),
+    goal: z.string().min(1),
+    intentType: intentTypeSchema,
+    status: agentRunStatusSchema,
+    startedAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    currentStepIndex: z.number().int().nullable(),
+    currentStepDescription: z.string().nullable(),
+    completedSteps: z.number().int().nonnegative(),
+    totalSteps: z.number().int().nonnegative(),
+    retryCount: z.number().int().nonnegative(),
+    blockedReason: z.string().nullable(),
+    stopReason: z.string().nullable(),
+    activePageUrl: z.string().nullable(),
+    activePageTitle: z.string().nullable(),
+    lastObservationSummary: z.string().nullable(),
+    lastDecisionSummary: z.string().nullable(),
+    lastDecisionConfidence: z.number().nullable(),
+    clarificationNeeded: z.boolean(),
+    lastCommandId: z.string().nullable(),
+    lastCommandType: z.string().nullable(),
+    lastResultOk: z.boolean().nullable(),
+    lastResultMessage: z.string().nullable(),
+    steps: z.array(agentRunStepSchema)
+  })
+  .strict();
+export const agentLoopOutcomeSchema = z
+  .object({
+    status: agentRunStatusSchema.or(z.literal("finished")),
+    reason: z.string().nullable().optional()
+  })
+  .strict();
+export const agentStartRequestSchema = parseIntentRequestSchema
+  .extend({
+    autoRun: z.boolean().default(false),
+    maxSteps: z.number().int().positive().max(25).optional()
+  })
+  .strict();
+export const agentContinueRequestSchema = z
+  .object({
+    maxSteps: z.number().int().positive().max(25).default(1)
+  })
+  .strict();
+export const agentStartResponseSchema = z
+  .object({
+    transcript: z.string().min(1),
+    intent: intentSchema,
+    plan: actionPlanSchema,
+    agentRun: agentRunSchema,
+    loopOutcome: agentLoopOutcomeSchema.nullable().default(null)
+  })
+  .strict();
+export const agentContinueResponseSchema = z
+  .object({
+    agentRun: agentRunSchema.nullable(),
+    loopOutcome: agentLoopOutcomeSchema
+  })
+  .strict();
+export const agentStateResponseSchema = z
+  .object({
+    agentRun: agentRunSchema.nullable()
+  })
+  .strict();
 
 export const transcriptionResponseSchema = z
   .object({
@@ -161,6 +257,8 @@ export type AssistantStatus = z.infer<typeof assistantStatusSchema>;
 export type SafetyLevel = z.infer<typeof safetyLevelSchema>;
 export type FeedbackEventType = z.infer<typeof feedbackEventTypeSchema>;
 export type FeedbackSpeechVoice = z.infer<typeof feedbackSpeechVoiceSchema>;
+export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
+export type AgentStepStatus = z.infer<typeof agentStepStatusSchema>;
 export type IntentType = z.infer<typeof intentTypeSchema>;
 export type MessageDetails = z.infer<typeof messageDetailsSchema>;
 export type Intent = z.infer<typeof intentSchema>;
@@ -169,3 +267,11 @@ export type ActionStep = z.infer<typeof actionStepSchema>;
 export type ActionPlan = z.infer<typeof actionPlanSchema>;
 export type OrchestratorResponse = z.infer<typeof orchestratorResponseSchema>;
 export type FeedbackSpeechRequest = z.infer<typeof feedbackSpeechRequestSchema>;
+export type AgentRunStep = z.infer<typeof agentRunStepSchema>;
+export type AgentRun = z.infer<typeof agentRunSchema>;
+export type AgentLoopOutcome = z.infer<typeof agentLoopOutcomeSchema>;
+export type AgentStartRequest = z.infer<typeof agentStartRequestSchema>;
+export type AgentContinueRequest = z.infer<typeof agentContinueRequestSchema>;
+export type AgentStartResponse = z.infer<typeof agentStartResponseSchema>;
+export type AgentContinueResponse = z.infer<typeof agentContinueResponseSchema>;
+export type AgentStateResponse = z.infer<typeof agentStateResponseSchema>;
