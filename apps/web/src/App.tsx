@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
+  actionStepSchema,
   sampleCommands,
+  safetyLevelSchema,
   statusLabels,
   type ActionPlan,
   type AssistantStatus,
   type Intent,
   type SafetyLevel
 } from "@shared/index";
+import { z } from "zod";
 import {
   getExtensionState,
   mapPlanToExtensionCommands,
@@ -24,6 +27,20 @@ type ChatMessage = {
   safetyLevel?: SafetyLevel;
   notes?: string[];
 };
+
+const chatHistoryStorageKey = "mo-access-chat-history";
+const chatMessageSchema = z
+  .object({
+    id: z.string().min(1),
+    role: z.enum(["assistant", "user"]),
+    content: z.string().min(1),
+    tone: z.enum(["default", "error"]).optional(),
+    steps: z.array(actionStepSchema).optional(),
+    safetyLevel: safetyLevelSchema.optional(),
+    notes: z.array(z.string()).optional()
+  })
+  .strict();
+const storedChatHistorySchema = z.array(chatMessageSchema);
 
 const initialMessages: ChatMessage[] = [
   {
@@ -46,6 +63,25 @@ function createId() {
   }
 
   return `fallback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function loadStoredMessages() {
+  if (typeof window === "undefined") {
+    return initialMessages;
+  }
+
+  const rawValue = window.localStorage.getItem(chatHistoryStorageKey);
+  if (!rawValue) {
+    return initialMessages;
+  }
+
+  try {
+    const parsed = storedChatHistorySchema.parse(JSON.parse(rawValue));
+    return parsed.length > 0 ? parsed : initialMessages;
+  } catch {
+    window.localStorage.removeItem(chatHistoryStorageKey);
+    return initialMessages;
+  }
 }
 
 function buildAssistantReply(intent: Intent, plan: ActionPlan, assistantMessage: string | null): ChatMessage {
@@ -75,7 +111,7 @@ function submitLabel(isBusy: boolean, typedCommand: string, audioFile: File | nu
 }
 
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadStoredMessages());
   const [typedCommand, setTypedCommand] = useState("");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [status, setStatus] = useState<AssistantStatus>("idle");
@@ -91,6 +127,14 @@ export default function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, status]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(chatHistoryStorageKey, JSON.stringify(messages));
+    } catch {
+      // Ignore storage failures and keep the current in-memory chat available.
+    }
+  }, [messages]);
 
   useEffect(() => {
     return () => {
