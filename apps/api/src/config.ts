@@ -8,7 +8,7 @@ loadEnv({
 
 const envSchema = z.object({
   OPENAI_API_KEY: z.string().min(1).optional(),
-  OPENAI_REASONING_MODEL: z.string().default("gpt-4o-mini"),
+  OPENAI_REASONING_MODEL: z.string().default("gpt-5.4-mini"),
   OPENAI_TRANSCRIPTION_MODEL: z.string().default("gpt-4o-mini-transcribe"),
   PORT: z.coerce.number().int().positive().default(8787),
   WEB_ORIGIN: z.string().url().default("http://localhost:5173"),

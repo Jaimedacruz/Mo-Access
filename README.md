@@ -27,7 +27,7 @@ This iteration does not automate the browser. It only:
 - Validation: Zod
 - OpenAI API:
   - `gpt-4o-mini-transcribe` for speech-to-text
-  - `gpt-4o-mini` for structured intent parsing
+  - `gpt-5.4-mini` for structured intent parsing
 
 ## Project Structure
 
@@ -117,7 +117,7 @@ The API runs on `http://localhost:8787`.
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
-OPENAI_REASONING_MODEL=gpt-4o-mini
+OPENAI_REASONING_MODEL=gpt-5.4-mini
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 PORT=8787
 WEB_ORIGIN=http://localhost:5173
