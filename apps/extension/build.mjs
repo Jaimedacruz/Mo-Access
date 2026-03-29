@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { build } from "vite";
+import react from "@vitejs/plugin-react";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = path.join(root, "public");
@@ -14,13 +15,17 @@ const alias = {
 await build({
   root,
   publicDir,
+  envDir: path.resolve(root, "../.."),
+  plugins: [react()],
   resolve: { alias },
   build: {
     outDir,
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        popup: path.join(root, "popup.html")
+        popup: path.join(root, "popup.html"),
+        panel: path.join(root, "panel.html"),
+        newtab: path.join(root, "newtab.html")
       },
       output: {
         entryFileNames: "assets/[name].js",
@@ -34,6 +39,8 @@ await build({
 await build({
   root,
   publicDir: false,
+  envDir: path.resolve(root, "../.."),
+  plugins: [react()],
   resolve: { alias },
   build: {
     outDir,
@@ -55,6 +62,8 @@ await build({
 await build({
   root,
   publicDir: false,
+  envDir: path.resolve(root, "../.."),
+  plugins: [react()],
   resolve: { alias },
   build: {
     outDir,

@@ -1,312 +1,233 @@
-You are implementing the Chrome extension for the first working iteration of our accessibility-focused voice assistant project.
+You are working inside the existing accessibility-focused hackathon project.
 
-Context:
-- The first iteration already exists.
-- It excludes the browser extension, but it already produces structured commands that are intended to be executed by a future extension.
-- We are now building that extension.
-- Use OpenAI's API only for LLM and voice-related tasks in the wider project, but for this extension itself, keep it deterministic and execution-focused. The extension should NOT call the OpenAI API directly.
-- The extension should only receive ready-to-execute commands from the existing app/orchestrator.
+Your task is to update and improve the **feedback layer** so that spoken feedback uses the **OpenAI text-to-speech API** instead of the browser's native `speechSynthesis` voices.
 
-Goal:
-Build a Chrome extension that can receive structured commands from the existing local app, execute safe browser actions on the active tab, and return structured results back to the app.
+Important context:
+- The orchestrator already exists.
+- The Chrome extension already exists.
+- A first feedback layer may already exist.
+- Do NOT redesign the architecture.
+- Do NOT rebuild unrelated parts.
+- Focus on upgrading the spoken feedback path while keeping the system accessible, clean, and demo-ready.
+- Use OpenAI's API for all voice-related tasks in this project.
 
-High-level product intent:
-This project is an accessibility-focused assistive system for users with motor impairments, low vision, and cognitive overload. The extension is the execution layer only. It should feel reliable, predictable, and simple. It should not perform reasoning. It should only interpret structured commands and execute them safely.
+## Goal
+Replace or abstract the current browser-native TTS path with an **OpenAI-powered speech output layer** that produces better spoken feedback quality while keeping the UX calm, concise, and accessibility-first.
 
-What to build:
-Implement a Chrome extension (Manifest V3) that supports the following first-iteration capabilities:
+The user should still get:
+1. **Visual feedback** during task execution
+2. **Optional voice feedback**
+3. Clear status transitions so the user always understands what the system is doing
 
-1. Ping / health check
-- The app should be able to confirm that the extension is installed and responsive.
-- Return extension version, active tab URL if available, and basic readiness status.
+The spoken feedback should feel higher quality than default browser TTS, but the product should remain practical for a hackathon demo.
 
-2. Page context extraction
-- Extract visible text from the current page.
-- Extract page title.
-- Extract current URL.
-- Extract interactive elements summary, including buttons, links, inputs, textareas, selects.
-- For interactive elements, include lightweight metadata such as:
-  - type
-  - text/label
-  - name
-  - id
-  - placeholder
-  - aria-label
-  - disabled state
-  - whether element appears visible
-Do not return massive raw DOM dumps. Keep it compact and structured.
+---
 
-3. Open / navigate
-- Navigate the active tab to a provided URL.
-- Also support opening a URL in a new tab if explicitly requested by the command.
-- Validate URLs conservatively.
+## High-level requirements
 
-4. Click action
-- Accept a structured click command with one or more selector hints.
-- Attempt to find the best matching clickable element.
-- Click only if confidence is reasonable.
-- Return what was matched.
-- If no suitable element is found, return candidate matches instead of failing silently.
+### 1. Use OpenAI text-to-speech for spoken feedback
+Implement spoken feedback through the OpenAI API rather than `speechSynthesis`.
 
-5. Type into fields
-- Accept a structured type/fill command with field hints and values.
-- Find the most likely matching input / textarea / contenteditable target.
-- Simulate user-friendly input events properly.
-- Return which field was matched and filled.
-- If ambiguous, return candidates.
+Requirements:
+- Route spoken status updates through the backend/orchestrator or the most appropriate secure layer
+- Do **not** expose API keys in frontend or extension code
+- Generate audio from text using OpenAI TTS
+- Return audio safely to the frontend for playback
+- Keep the implementation simple and reliable
 
-6. Read page command support
-- Support extraction for “read page” style flows by returning ordered visible text blocks.
-- Do not do speech synthesis inside the extension yet.
-- The app/backend can decide how to use the text.
+### 2. Keep voice feedback optional
+There should still be a UI toggle to enable or disable spoken feedback.
 
-7. Highlight target elements
-- When an element is clicked, typed into, or selected as a candidate, visibly highlight it briefly.
-- Use an accessible high-contrast temporary outline.
+Requirements:
+- Voice feedback should remain OFF by default unless the current product already has a clear accessibility preference system that suggests otherwise
+- The UI toggle should remain easy to understand
+- Spoken feedback should only occur for meaningful status updates, not every micro-event
 
-8. Structured command execution
-- The extension should accept commands that are already planned by the orchestrator.
-- It should execute one command at a time.
-- It should return structured results in a stable schema.
+### 3. Preserve the visual feedback system
+Do not remove the current visual status layer.
 
-Important architectural rule:
-The extension must be dumb and reliable.
-- No LLM calls.
-- No OpenAI API calls.
-- No hidden planning.
-- No guessing beyond lightweight element ranking logic.
-- No silent dangerous actions.
+The product should still clearly show messages such as:
+- "Opening page..."
+- "Looking for the form..."
+- "Filling the email field..."
+- "Ready to submit. Waiting for confirmation."
+- "Done."
+- "I couldn't find the button."
 
-Scope constraints for this first extension iteration:
-- Chrome only.
-- Local development only.
-- Do not support arbitrary desktop control.
-- Do not support file system access.
-- Do not support sending messages or submitting forms automatically unless the command explicitly says so and confidence is high.
-- For now, do not auto-submit forms by default.
-- Prefer filling and highlighting over final submission.
+### 4. Integrate OpenAI TTS with feedback events
+The existing feedback event system should be used, or extended if needed.
 
-Expected integration model:
-The existing local app/orchestrator should be able to communicate with the extension. Implement one practical and clean method for local development.
-Preferred approach:
-- A content script + background service worker architecture.
-- Communicate with the local app through one of these approaches, choosing the cleanest practical option:
-  1. Extension popup or sidepanel that can manually connect to localhost API
-  2. Background service worker polling or requesting localhost
-  3. Chrome native messaging is NOT required
-Choose the simplest reliable localhost integration for a hackathon MVP.
+Support event types such as:
+- info
+- progress
+- success
+- warning
+- error
+- awaiting_confirmation
 
-Recommended direction:
-Use the background service worker to communicate with the local orchestrator running on localhost via fetch, and use chrome.tabs/chrome.scripting messaging to communicate with the active tab content script.
-Also include a small popup UI for debugging and demo clarity.
+Only some events should trigger spoken output.
 
-What the extension should include:
-1. manifest.json
-2. background/service worker
-3. content script
-4. popup UI
-5. shared command/result types if needed
-6. minimal styling for popup
-7. clear README section for loading the unpacked extension in Chrome
+---
 
-Popup UI requirements:
-- Very simple.
-- Show connection status.
-- Show current tab URL.
-- Show last received command.
-- Show last execution result.
-- Include buttons for:
-  - ping orchestrator
-  - get page context
-  - run a local test click command
-  - run a local test fill command
-- This popup is mainly for development/debugging/demo visibility.
+## Spoken feedback behavior
 
-Command schema expectations:
-Design the extension around stable structured commands.
-Support commands like these, or a very similar schema:
+### Speak only meaningful updates
+Examples of messages that SHOULD usually be spoken:
+- "Opening the page now."
+- "Filling the form now."
+- "I found the submit button."
+- "I am ready to submit the form. Please confirm."
+- "I couldn't find that field."
 
-{
-  "id": "cmd_123",
-  "type": "get_page_context"
-}
+Examples that SHOULD NOT usually be spoken:
+- every tiny internal execution detail
+- repeated duplicate messages
+- noisy debug information
 
-{
-  "id": "cmd_124",
-  "type": "navigate",
-  "url": "https://example.com",
-  "newTab": false
-}
+### Avoid excessive chatter
+Implement guardrails such as:
+- de-duplication of repeated messages
+- minimum spacing between spoken updates if needed
+- cancellation/replacement strategy if a new higher-priority message arrives
+- prevent overlapping audio playback
 
-{
-  "id": "cmd_125",
-  "type": "click",
-  "target": {
-    "text": "Contact Us",
-    "role": "button",
-    "selector": null
-  }
-}
+### Confirmation prompts must be spoken clearly
+For risky actions like:
+- submitting a form
+- sending a message
+- navigating away from unsaved content
 
-{
-  "id": "cmd_126",
-  "type": "fill_field",
-  "target": {
-    "fieldHint": "email"
-  },
-  "value": "jaime@example.com"
-}
+The system should speak a concise confirmation prompt such as:
+- "I am ready to submit the form. Please confirm."
+- "I wrote the message and I am ready to send it. Please confirm."
 
-{
-  "id": "cmd_127",
-  "type": "fill_form",
-  "fields": [
-    { "fieldHint": "name", "value": "Jaime Da Cruz" },
-    { "fieldHint": "email", "value": "jaime@example.com" }
-  ]
-}
+---
 
-Result schema expectations:
-Return structured results like:
+## Security and architecture requirements
 
-{
-  "commandId": "cmd_126",
-  "ok": true,
-  "action": "fill_field",
-  "matched": {
-    "tag": "input",
-    "name": "email",
-    "id": "email",
-    "label": "Email Address"
-  },
-  "message": "Filled email field successfully"
-}
+### 1. No API key exposure
+The OpenAI API key must never appear in:
+- frontend source
+- extension source
+- browser-exposed configs
 
-And for ambiguous cases:
+Use the backend/orchestrator or another secure server-side layer to call OpenAI.
 
-{
-  "commandId": "cmd_125",
-  "ok": false,
-  "action": "click",
-  "message": "No high-confidence match found",
-  "candidates": [
-    { "text": "Contact", "role": "link" },
-    { "text": "Contact Us", "role": "button" }
-  ]
-}
+### 2. Add a small server-side TTS endpoint or service
+Implement a secure backend path that:
+- accepts short text for speech
+- validates input
+- calls OpenAI TTS
+- returns playable audio to the frontend
 
-Element matching logic:
-Implement lightweight ranking heuristics. Prefer deterministic ranking over complex magic.
-For inputs:
-- exact name match
-- exact id match
-- exact aria-label match
-- exact associated label text match
-- placeholder contains field hint
-- partial matches after normalization
+Keep it simple and production-minded.
 
-For clickable elements:
-- exact visible text match
-- aria-label match
-- title match
-- role match if available
-- selector match if provided
-- partial normalized text match
+### 3. Keep the interface modular
+Create or refine a small speech service abstraction so that the UI does not care whether speech came from:
+- OpenAI TTS
+- or a fallback provider if you decide to keep one behind the abstraction
 
-Normalize comparisons:
-- lowercase
-- trim whitespace
-- collapse spaces
-- ignore punctuation where reasonable
+Suggested shape:
+- `speakFeedback(text, options?)`
+- backend `synthesizeFeedbackAudio(text, options?)`
 
-Accessibility requirements:
-- High contrast highlight outlines
-- Avoid sudden destructive actions
-- Clear result messages
-- Predictable behavior
-- Make it easy for the rest of the system to confirm actions before submission
+Do not force these exact names if the repo already has a better pattern.
 
-Implementation expectations:
-- Use TypeScript if the existing project already uses TypeScript. Prefer consistency with the first iteration.
-- Use a simple build setup such as Vite or the project’s existing preferred tooling if appropriate.
-- Keep the extension code organized and readable.
-- Add comments where the execution protocol matters.
-- Include robust error handling.
-- Use explicit permission declarations only as needed.
-- Keep permissions minimal.
+---
 
-Likely Chrome permissions to consider:
-- activeTab
-- scripting
-- tabs
-- storage
-Host permissions should be minimal but practical for local development and active page access.
-If localhost communication needs host permissions, configure them properly.
+## Suggested implementation direction
 
-Development assumptions:
-- The orchestrator is already running locally.
-- The orchestrator can expose endpoints such as:
-  - GET /health
-  - POST /extension/page-context
-  - POST /extension/execute
-You may adapt endpoint assumptions if needed, but keep them simple and well documented.
+Use the current architecture and implement something close to this if appropriate:
 
-What I want from you in the code output:
-1. Implement the full extension.
-2. Add a small integration layer for localhost orchestrator communication.
-3. Add clear types for commands/results.
-4. Add a popup for debug/demo.
-5. Add README instructions for:
-   - install dependencies
-   - build extension
-   - load unpacked extension
-   - connect to local app
-   - test commands
-6. Keep the implementation realistic for a hackathon MVP.
-7. Do not over-engineer.
+### Backend / orchestrator
+- add a TTS service module
+- add a secure endpoint for TTS generation
+- call OpenAI from the backend only
+- validate text length and input type
+- optionally support a small set of allowed voice/style options
+- return audio in a format that the frontend can play easily
 
-Suggested internal module structure:
-- src/background/
-  - index.ts
-  - orchestratorClient.ts
-  - commandRouter.ts
-- src/content/
-  - index.ts
-  - dom/extractPageContext.ts
-  - dom/findClickable.ts
-  - dom/findField.ts
-  - dom/highlight.ts
-  - dom/actions.ts
-- src/popup/
-  - Popup.tsx or equivalent
-- src/shared/
-  - types.ts
-  - normalize.ts
-  - scoring.ts
+### Frontend
+- keep the voice feedback toggle
+- on eligible feedback events, request generated speech audio from backend
+- play the returned audio
+- handle loading, cancellation, and playback errors gracefully
 
-Behavioral requirements:
-- Every command should return a result.
-- Never fail silently.
-- If something cannot be done, explain why in the result.
-- If ambiguity exists, return candidates.
-- Log meaningful messages for local debugging.
+### Feedback coordination
+- only speak selected feedback events
+- map event types / states to speakable messages
+- avoid duplicate spoken messages
 
-Out of scope for this iteration:
-- Auto-running background browsing sequences on arbitrary sites
-- Authentication handling for external sites
-- Full workflow planning inside the extension
-- Advanced autonomous behavior
-- Speech synthesis inside extension
-- Native messaging
-- Cross-browser support
+---
 
-Definition of done:
-- I can build the extension locally.
-- I can load it into Chrome as an unpacked extension.
-- The popup opens and shows status.
-- The extension can fetch page context from the active tab.
-- The extension can execute click and fill commands on a local demo page.
-- The extension returns structured results.
-- The code is clean enough to demo and iterate on.
+## Reliability requirements
 
-Please implement this directly in the repository, following the existing project structure where sensible. Be careful not to break the first iteration. Prefer additive changes. If some assumptions about the current repo structure are needed, inspect the repo first and adapt intelligently rather than forcing a brand-new unrelated structure.
+Because this is a hackathon project, keep the implementation robust and demo-friendly.
+
+Requirements:
+- if OpenAI TTS fails, the UI should still continue working visually
+- spoken feedback failure must not block task execution
+- handle network or playback errors gracefully
+- log meaningful errors for development without cluttering the UI
+- optionally support a silent fallback path if TTS is unavailable
+
+Do not over-engineer retries unless the project already has a pattern for them.
+
+---
+
+## Accessibility-first requirements
+
+The spoken feedback system should improve accessibility, especially for:
+- users with low vision
+- users with motor impairments
+- users with cognitive overload
+
+Requirements:
+- concise, plain-language spoken output
+- no overwhelming verbosity
+- one main spoken idea at a time
+- keep visual status as the primary truth on screen
+- maintain screen-reader-friendly status regions if already present
+
+---
+
+## Implementation expectations
+
+Please:
+1. Inspect the existing project structure first
+2. Identify where the current feedback and voice logic lives
+3. Replace or refactor the browser-native TTS path cleanly
+4. Reuse current state management patterns where possible
+5. Add only the minimum necessary files and changes
+6. Keep the code modular and easy to understand
+7. Do not add unnecessary dependencies unless absolutely needed
+
+---
+
+## Deliverables
+Implement the code changes needed for:
+- OpenAI-based spoken feedback
+- secure server-side TTS generation
+- frontend playback integration
+- continued visual feedback support
+- graceful fallback behavior if TTS fails
+
+Also provide:
+1. A short summary of what you changed
+2. A list of files created or modified
+3. Any environment variables required
+4. Manual test steps
+5. Example commands I can run in the app to test spoken feedback behavior
+
+---
+
+## Quality bar
+The result should feel noticeably better than default browser TTS while staying simple enough for a hackathon demo.
+
+When a user speaks a command, the system should:
+- show what it is doing
+- optionally speak the most important progress updates
+- clearly announce when confirmation is needed
+- never block the workflow if speech generation fails
+
+Keep the implementation practical, secure, and polished.

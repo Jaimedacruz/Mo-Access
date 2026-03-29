@@ -8,6 +8,7 @@ import { clickElement, fillElement } from "./dom/actions";
 import { extractPageContext } from "./dom/extractPageContext";
 import { findClickable } from "./dom/findClickable";
 import { findField } from "./dom/findField";
+import { mountAssistantOverlay } from "./overlay";
 
 function ambiguousResult(command: ExtensionCommand, message: string, candidates: ExtensionCommandResult["candidates"]) {
   return {
@@ -138,3 +139,5 @@ chrome.runtime.onMessage.addListener((message: ContentAction, _sender, sendRespo
 
   return true;
 });
+
+void mountAssistantOverlay();
